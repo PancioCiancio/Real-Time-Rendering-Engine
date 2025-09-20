@@ -41,8 +41,8 @@ ReferenceAlignment: Right      # int &ref;
 AllowShortIfStatementsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
 AllowShortCaseLabelsOnASingleLine: true
-AlwaysBreakAfterReturnType: TopLevel
-BreakBeforeBraces: Custom
+BreakAfterReturnType: None
+BreakBeforeBraces: Allman
 
 # === Switch / Case ===
 IndentCaseLabels: true
@@ -69,7 +69,6 @@ Cpp11BracedListStyle: true   # keeps initializer lists consistent
 AllowAllParametersOfDeclarationOnNextLine: false
 BreakConstructorInitializers: AfterColon
 PackConstructorInitializers: Never
-KeepEmptyLinesAtTheStartOfBlocks: false
 
 # === Misc ===
 MaxEmptyLinesToKeep: 3
