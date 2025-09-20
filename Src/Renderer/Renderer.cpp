@@ -16,6 +16,10 @@
 
 namespace Renderer
 {
+// @todo just for testing purpose.
+static uint32_t INDICES_COUNT = {};
+
+
 VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
     VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -24,7 +28,8 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
 {
     // ReSharper disable once CppDFAUnusedValue
     const char *severity = "";
-    switch (messageSeverity) {
+    switch (messageSeverity)
+    {
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: severity = "[VERBOSE]";
             break;
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT: severity = "[INFO]";
@@ -63,8 +68,7 @@ constexpr VkDebugUtilsMessengerCreateInfoEXT DEBUG_UTILS_MESSENGER_CREATE_INFO =
     .pUserData = nullptr,
 };
 
-void
-Renderer::Init()
+void Renderer::Init()
 {
     // Init the window class
     VK_CHECK((SDL_Init(SDL_INIT_VIDEO) == 0)
@@ -96,8 +100,7 @@ Renderer::Init()
     PrepareDepthStencil();
 }
 
-void
-Renderer::Update(double delta_time)
+void Renderer::Update(double delta_time)
 {
     // Timing variables
     Uint64 now = SDL_GetPerformanceCounter();
@@ -110,8 +113,8 @@ Renderer::Update(double delta_time)
 
     uint32_t fifIndex = 0u;
 
-    glm::vec3 cameraPos = {0.0f, 140.0f, -1900.0f};
-    glm::vec3 cameraPosNew = {0.0f, 140.0f, -1900.0f};
+    glm::vec3 cameraPos = {0.0f, .0f, -100.0f};
+    glm::vec3 cameraPosNew = {0.0f, .0f, -100.0f};
     glm::vec3 cameraFront = {0.0f, 0.0f, 1.0f};
     glm::vec3 cameraUp = {0.0f, 1.0f, 0.0f};
 
@@ -122,7 +125,8 @@ Renderer::Update(double delta_time)
     VkPipeline chosenPipeline = pipeline;
 
     bool stillRunning = true;
-    while (stillRunning) {
+    while (stillRunning)
+    {
         constexpr float CAMERA_MOVE_SPEED = 200.639f;
         last = now;
         now = SDL_GetPerformanceCounter();
@@ -137,8 +141,10 @@ Renderer::Update(double delta_time)
         SDL_Event event = {};
 
         // Input state
-        while (SDL_PollEvent(&event)) {
-            switch (event.type) {
+        while (SDL_PollEvent(&event))
+        {
+            switch (event.type)
+            {
                 case SDL_QUIT: stillRunning = false;
                     break;
 
@@ -150,28 +156,34 @@ Renderer::Update(double delta_time)
 
         const Uint8 *keyStates = SDL_GetKeyboardState(nullptr);
 
-        if (keyStates[SDL_SCANCODE_W]) {
+        if (keyStates[SDL_SCANCODE_W])
+        {
             cameraPosNew += CAMERA_MOVE_SPEED * static_cast<float>(deltaTime) * cameraFront;
         }
 
-        if (keyStates[SDL_SCANCODE_S]) {
+        if (keyStates[SDL_SCANCODE_S])
+        {
             cameraPosNew -= CAMERA_MOVE_SPEED * static_cast<float>(deltaTime) * cameraFront;
         }
 
-        if (keyStates[SDL_SCANCODE_A]) {
+        if (keyStates[SDL_SCANCODE_A])
+        {
             cameraPosNew -= glm::normalize(glm::cross(cameraFront, cameraUp)) *
                 CAMERA_MOVE_SPEED * static_cast<float>(deltaTime);
         }
 
-        if (keyStates[SDL_SCANCODE_D]) {
+        if (keyStates[SDL_SCANCODE_D])
+        {
             cameraPosNew += glm::normalize(glm::cross(cameraFront, cameraUp)) *
                 CAMERA_MOVE_SPEED * static_cast<float>(deltaTime);
         }
 
-        if (keyStates[SDL_SCANCODE_Q]) {
+        if (keyStates[SDL_SCANCODE_Q])
+        {
             chosenPipeline = pipelineWireframe;
         }
-        else if (keyStates[SDL_SCANCODE_E]) {
+        else if (keyStates[SDL_SCANCODE_E])
+        {
             chosenPipeline = pipeline;
         }
 
@@ -278,7 +290,7 @@ Renderer::Update(double delta_time)
         vkCmdBindIndexBuffer(framesInFlight.commandBuffer[fifIndex],
             batch.index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
-        vkCmdDrawIndexed(framesInFlight.commandBuffer[fifIndex], 299910,
+        vkCmdDrawIndexed(framesInFlight.commandBuffer[fifIndex], INDICES_COUNT,
             1, 0, 0, 0);
 
         vkCmdEndRenderPass(framesInFlight.commandBuffer[fifIndex]);
@@ -326,7 +338,8 @@ Renderer::Update(double delta_time)
         // Example: updateGame(deltaTime); render();
 
         // Frame limiting: Sleep if frame is faster than target frame time
-        if (deltaTime < TARGET_FRAME_TIME) {
+        if (deltaTime < TARGET_FRAME_TIME)
+        {
             SDL_Delay(static_cast<Uint32>(TARGET_FRAME_TIME - deltaTime));
         }
 
@@ -334,8 +347,7 @@ Renderer::Update(double delta_time)
     }
 }
 
-void
-Renderer::Teardown() const
+void Renderer::Teardown() const
 {
     VK_CHECK(
         vkDeviceWaitIdle(device));
@@ -401,14 +413,16 @@ Renderer::Teardown() const
         batch.index_mem,
         nullptr);
 
-    for (const VkDeviceMemory &memory : uniformBufferFrames.memory) {
+    for (const VkDeviceMemory &memory : uniformBufferFrames.memory)
+    {
         vkFreeMemory(
             device,
             memory,
             nullptr);
     }
 
-    for (const VkBuffer &buffer : uniformBufferFrames.buffers) {
+    for (const VkBuffer &buffer : uniformBufferFrames.buffers)
+    {
         vkDestroyBuffer(
             device,
             buffer,
@@ -443,7 +457,8 @@ Renderer::Teardown() const
         depthStencilMemory,
         nullptr);
 
-    for (uint32_t i = 0; i < surfaceCapabilities.minImageCount; i++) {
+    for (uint32_t i = 0; i < surfaceCapabilities.minImageCount; i++)
+    {
         vkDestroyFramebuffer(
             device,
             presentationFrames.framebuffer[i],
@@ -460,11 +475,13 @@ Renderer::Teardown() const
             nullptr);
     }
 
-    for (const VkSemaphore &framesInFlightSemaphore : framesInFlight.acquiredImageSemaphore) {
+    for (const VkSemaphore &framesInFlightSemaphore : framesInFlight.acquiredImageSemaphore)
+    {
         vkDestroySemaphore(device, framesInFlightSemaphore, nullptr);
     }
 
-    for (const VkFence &framesInFlightFence : framesInFlight.submitFence) {
+    for (const VkFence &framesInFlightFence : framesInFlight.submitFence)
+    {
         vkDestroyFence(device, framesInFlightFence, nullptr);
     }
 
@@ -473,7 +490,8 @@ Renderer::Teardown() const
         swapchain,
         nullptr);
 
-    for (const VkCommandPool &framesInFlightCommandPool : framesInFlight.commandPool) {
+    for (const VkCommandPool &framesInFlightCommandPool : framesInFlight.commandPool)
+    {
         vkDestroyCommandPool(device, framesInFlightCommandPool, nullptr);
     }
 
@@ -497,8 +515,7 @@ Renderer::Teardown() const
     SDL_Quit();
 }
 
-void
-Renderer::InitInstance()
+void Renderer::InitInstance()
 {
     VK_CHECK(volkInitialize());
 
@@ -534,8 +551,7 @@ Renderer::InitInstance()
         nullptr, &debugMessenger);
 }
 
-void
-Renderer::InitSurface()
+void Renderer::InitSurface()
 {
     // @todo use the vulkan call and not the sdl one.
     VK_CHECK(
@@ -547,8 +563,7 @@ Renderer::InitSurface()
         : VK_ERROR_INITIALIZATION_FAILED);
 }
 
-void
-Renderer::InitDevice()
+void Renderer::InitDevice()
 {
     constexpr VkPhysicalDeviceFeatures GPU_REQUIRED_FEATURES = {
         .geometryShader = VK_TRUE, .tessellationShader = VK_TRUE,
@@ -590,8 +605,7 @@ Renderer::InitDevice()
     vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
 }
 
-void
-Renderer::InitSwapchain()
+void Renderer::InitSwapchain()
 {
     VkFormat required_surface_formats[1] = {
         VK_FORMAT_R8G8B8A8_SRGB,
@@ -630,7 +644,8 @@ Renderer::InitSwapchain()
         &presentationFrames.image[0]);
 
     // Create the view of the swapchain images
-    for (uint32_t i = 0; i < surfaceCapabilities.minImageCount; i++) {
+    for (uint32_t i = 0; i < surfaceCapabilities.minImageCount; i++)
+    {
         vk_create_image_view(
             device,
             presentationFrames.image[i],
@@ -647,7 +662,8 @@ Renderer::InitSwapchain()
             &presentationFrames.imageView[i]);
     }
 
-    for (uint32_t i = 0; i < surfaceCapabilities.minImageCount; i++) {
+    for (uint32_t i = 0; i < surfaceCapabilities.minImageCount; i++)
+    {
         VkSemaphoreCreateInfo semaphore_create_info = {};
         semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         semaphore_create_info.flags = 0;
@@ -661,8 +677,7 @@ Renderer::InitSwapchain()
     }
 }
 
-void
-Renderer::InitOtherImages()
+void Renderer::InitOtherImages()
 {
     VkSampleCountFlagBits sample_counts = VK_SAMPLE_COUNT_1_BIT;
     vk_query_sample_counts(
@@ -749,8 +764,7 @@ Renderer::InitOtherImages()
         &depthStencilImageView);
 }
 
-void
-Renderer::InitCommand()
+void Renderer::InitCommand()
 {
     VkCommandPoolCreateInfo commandPoolCreateInfo = {};
     commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -758,7 +772,8 @@ Renderer::InitCommand()
                                   VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     commandPoolCreateInfo.queueFamilyIndex = queueFamilyIndex;
 
-    for (size_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++) {
+    for (size_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++)
+    {
         VkCommandPool &fifCommandPool = framesInFlight.commandPool[i];
 
         VK_CHECK(vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr,
@@ -789,12 +804,15 @@ Renderer::InitCommand()
     }
 }
 
-void
-Renderer::InitBatch()
+
+void Renderer::InitBatch()
 {
-    Mesh::Load(
-        "../Resources/Meshes/lucy.obj",
+    MeshLoader::Load(
+        "../Resources/Meshes/SM_Behemoth.fbx",
         &batchData);
+
+    INDICES_COUNT = batchData.indices.size();
+
     std::vector<glm::vec4> default_colors(
         batchData.position.size(),
         glm::vec4(
@@ -908,10 +926,10 @@ Renderer::InitBatch()
         batch.index_mem);
 }
 
-void
-Renderer::InitFramebuffers() const
+void Renderer::InitFramebuffers() const
 {
-    for (size_t i = 0; i < surfaceCapabilities.minImageCount; i++) {
+    for (size_t i = 0; i < surfaceCapabilities.minImageCount; i++)
+    {
         const VkImageView attachments[3] = {
             framebufferSampleImageView, // Multisample
             depthStencilImageView,
@@ -939,8 +957,7 @@ Renderer::InitFramebuffers() const
     }
 }
 
-void
-Renderer::InitRenderpass()
+void Renderer::InitRenderpass()
 {
     VkSampleCountFlagBits sample_counts = VK_SAMPLE_COUNT_1_BIT;
     vk_query_sample_counts(
@@ -1040,10 +1057,10 @@ Renderer::InitRenderpass()
     VK_CHECK(vkCreateRenderPass(device, &render_pass_create_info, nullptr, &renderPass));
 }
 
-void
-Renderer::InitUniformBuffer()
+void Renderer::InitUniformBuffer()
 {
-    for (uint32_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++) {
+    for (uint32_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++)
+    {
         constexpr VkDeviceSize buffer_size = sizeof(PerFrameDataCpu);
 
         vk_create_buffer(device, gpu, buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -1052,8 +1069,7 @@ Renderer::InitUniformBuffer()
     }
 }
 
-void
-Renderer::InitPipeline()
+void Renderer::InitPipeline()
 {
     auto vert_shader_code = FileSystem::ReadFile(
         "../Resources/Shaders/vert.spv");
@@ -1378,7 +1394,8 @@ Renderer::InitPipeline()
     VK_CHECK(vkAllocateDescriptorSets(device, &set_allocate_info,
         &uniformBufferFrames.descriptor_sets[0]));
 
-    for (size_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++) {
+    for (size_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++)
+    {
         VkDescriptorBufferInfo buffer_info = {};
         buffer_info.buffer = uniformBufferFrames.buffers[i];
         buffer_info.offset = 0;
@@ -1400,8 +1417,7 @@ Renderer::InitPipeline()
     vkDestroyShaderModule(device, shader_modules[1], nullptr);
 }
 
-void
-Renderer::PrepareDepthStencil()
+void Renderer::PrepareDepthStencil()
 {
     VkCommandBufferBeginInfo command_buffer_begin_info = {};
     command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;

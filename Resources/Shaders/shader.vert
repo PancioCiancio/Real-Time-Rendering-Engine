@@ -14,5 +14,5 @@ layout(location = 0) out vec4 fragColor;
 
 void main() {
     gl_Position = transforms.projection * transforms.view * vec4(positions, 1.0);
-    fragColor = colors * max(dot(normals, vec3(-0.0, 2.0, -0.2)), 0.1);
+    fragColor = colors * max(dot(normals, vec3(-0.0, 100000.0, 100.0)), 0.1);
 }
