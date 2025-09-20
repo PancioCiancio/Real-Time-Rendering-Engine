@@ -1,0 +1,43 @@
+BasedOnStyle: LLVM
+Language: Cpp
+
+# General style
+IndentWidth: 4
+UseTab: ForIndentation
+TabWidth: 4
+
+# Braces
+BreakBeforeBraces: Allman
+
+# Pointer/reference alignment
+PointerAlignment: Left
+
+# Function declaration formatting
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowAllArgumentsOnNextLine: true
+
+# Control statement spacing
+SpaceAfterCStyleCast: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+
+# Keep function call arguments compact
+BinPackArguments: false
+BinPackParameters: AlwaysOnePerLine
+
+# Column width
+ColumnLimit: 120
+
+# Extra settings to match original style
+IndentCaseLabels: false
+IndentGotoLabels: false
+AllowShortFunctionsOnASingleLine: Empty
+AlignConsecutiveDeclarations: true
+AlignConsecutiveAssignments: true
+AllowShortBlocksOnASingleLine: Never
+
+# Disable aligning trailing comments to maintain Doom's "free-form" commenting
+AlignTrailingComments: false
+
+# Sort includes? Doom didn't
+SortIncludes: CaseInsensitive
