@@ -1,43 +1,79 @@
-BasedOnStyle: LLVM
+---
+# NASA-inspired modern C++ style (based on SEL-94-003 + C++ extensions + modern best practices)
 Language: Cpp
+BasedOnStyle: LLVM
 
-# General style
+# === Indentation and spacing ===
 IndentWidth: 4
-UseTab: ForIndentation
 TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+ColumnLimit: 100   # NASA suggested ~80, but in modern C++ templates 100 is a practical balance
 
-# Braces
-BreakBeforeBraces: Allman
+# === Braces ===
+BraceWrapping:
+  AfterClass: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterExternBlock: true
+  BeforeElse: true
+  BeforeCatch: true
+  BeforeWhile: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+  IndentBraces: false
 
-# Pointer/reference alignment
-PointerAlignment: Left
-
-# Function declaration formatting
-AllowAllParametersOfDeclarationOnNextLine: false
-AllowAllArgumentsOnNextLine: true
-
-# Control statement spacing
-SpaceAfterCStyleCast: true
+# === Spaces ===
+SpacesInParentheses: false
 SpaceBeforeParens: ControlStatements
-SpaceInEmptyParentheses: false
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
 
-# Keep function call arguments compact
-BinPackArguments: false
-BinPackParameters: AlwaysOnePerLine
+# === Pointers and references ===
+PointerAlignment: Right      # int *ptr;
+ReferenceAlignment: Right      # int &ref;
 
-# Column width
-ColumnLimit: 120
+# === Control flow ===
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
+AlwaysBreakAfterReturnType: TopLevel
+BreakBeforeBraces: Custom
 
-# Extra settings to match original style
-IndentCaseLabels: false
-IndentGotoLabels: false
-AllowShortFunctionsOnASingleLine: Empty
-AlignConsecutiveDeclarations: true
-AlignConsecutiveAssignments: true
-AllowShortBlocksOnASingleLine: Never
+# === Switch / Case ===
+IndentCaseLabels: true
+IndentGotoLabels: true
 
-# Disable aligning trailing comments to maintain Doom's "free-form" commenting
-AlignTrailingComments: false
+# === Preprocessor ===
+IndentPPDirectives: AfterHash
+SpaceAfterCStyleCast: true
 
-# Sort includes? Doom didn't
-SortIncludes: CaseInsensitive
+# === Alignment ===
+AlignAfterOpenBracket: DontAlign
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: true
+AlignOperands: true
+AlignTrailingComments: Always
+
+# === Includes ===
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+
+# === Modern C++ Specific ===
+Cpp11BracedListStyle: true   # keeps initializer lists consistent
+AllowAllParametersOfDeclarationOnNextLine: false
+BreakConstructorInitializers: AfterColon
+PackConstructorInitializers: Never
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# === Misc ===
+MaxEmptyLinesToKeep: 3
+ReflowComments: Never   # NASA docs stress keeping comment formatting intentional
+SpacesInAngles: Never   # no space in templates: std::vector<int>
+SpaceBeforeAssignmentOperators: true
+...
