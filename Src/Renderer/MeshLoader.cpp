@@ -18,7 +18,8 @@ void MeshLoader::Load(const char *file_path, BatchCpu *batch)
     const aiScene *scene = aiImportFile(
         file_path,
         aiProcess_Triangulate |
-        aiProcess_GenNormals);
+        aiProcess_GenNormals |
+        aiProcess_JoinIdenticalVertices);
 
     if (!scene)
     {

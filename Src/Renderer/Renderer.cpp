@@ -565,14 +565,18 @@ void Renderer::InitSurface()
 
 void Renderer::InitDevice()
 {
-    constexpr VkPhysicalDeviceFeatures GPU_REQUIRED_FEATURES = {
-        .geometryShader = VK_TRUE, .tessellationShader = VK_TRUE,
-        .multiDrawIndirect = VK_TRUE, .fillModeNonSolid = VK_TRUE};
+    VkPhysicalDeviceFeatures gpuRequiredFeatures = {};
+    gpuRequiredFeatures.geometryShader = VK_TRUE;
+    gpuRequiredFeatures.tessellationShader = VK_TRUE;
+    gpuRequiredFeatures.multiDrawIndirect = VK_TRUE;
+    gpuRequiredFeatures.fillModeNonSolid = VK_TRUE;
+    gpuRequiredFeatures.sampleRateShading = VK_TRUE;
+    gpuRequiredFeatures.samplerAnisotropy = VK_TRUE;
 
     // @todo:	calculate the device extension count from the array.
     const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
-    QueryGpu(instance, GPU_REQUIRED_FEATURES, std::size(deviceExtensions),
+    QueryGpu(instance, gpuRequiredFeatures, std::size(deviceExtensions),
         deviceExtensions, &gpu);
 
     QueryQueueFamily(gpu, VK_QUEUE_GRAPHICS_BIT, true, 0, nullptr,
@@ -596,7 +600,7 @@ void Renderer::InitDevice()
     deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
     deviceCreateInfo.enabledExtensionCount = std::size(deviceExtensions);
     deviceCreateInfo.ppEnabledExtensionNames = &deviceExtensions[0];
-    deviceCreateInfo.pEnabledFeatures = &GPU_REQUIRED_FEATURES;
+    deviceCreateInfo.pEnabledFeatures = &gpuRequiredFeatures;
 
     VK_CHECK(vkCreateDevice(gpu, &deviceCreateInfo, nullptr, &device));
 
@@ -1227,14 +1231,14 @@ void Renderer::InitPipeline()
     rasterization_info.depthBiasSlopeFactor = 0.0f;
     rasterization_info.lineWidth = 1.0f;
 
-    VkSampleCountFlagBits sample_counts = VK_SAMPLE_COUNT_1_BIT;
-    vk_query_sample_counts(gpu, &sample_counts);
+    VkSampleCountFlagBits sampleCounts = VK_SAMPLE_COUNT_1_BIT;
+    vk_query_sample_counts(gpu, &sampleCounts);
 
     VkPipelineMultisampleStateCreateInfo multisample_info = {};
     multisample_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisample_info.flags = 0;
-    multisample_info.rasterizationSamples = sample_counts;
-    multisample_info.sampleShadingEnable = VK_FALSE;
+    multisample_info.rasterizationSamples = sampleCounts;
+    multisample_info.sampleShadingEnable = VK_TRUE;
     multisample_info.minSampleShading = 1.0f;
     multisample_info.pSampleMask = nullptr;
     multisample_info.alphaToCoverageEnable = VK_FALSE;
