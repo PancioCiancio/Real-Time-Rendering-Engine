@@ -20,43 +20,43 @@ namespace Renderer
 /// Groups all vertex info of all geometries that fit one draw call.
 struct BatchCpu
 {
-	std::vector<glm::vec3> position;
-	std::vector<glm::vec3> normals;
-	std::vector<glm::vec4> color;
-	std::vector<uint32_t>  indices;
+    std::vector<glm::vec3> position;
+    std::vector<glm::vec3> normals;
+    std::vector<glm::vec4> color;
+    std::vector<uint32_t> indices;
 };
 
 /// Groups all gpu buffers and gpu memories that fit one draw call command.
 /// It reflects the BatchCpu data.
 struct BatchGpu
 {
-	VkBuffer       position_buffer = {};
-	VkDeviceMemory position_mem    = {};
+    VkBuffer positionBuffer = {};
+    VkDeviceMemory positionMem = {};
 
-	VkBuffer       normal_buffer = {};
-	VkDeviceMemory normal_mem    = {};
+    VkBuffer normalBuffer = {};
+    VkDeviceMemory normalMem = {};
 
-	VkBuffer       color_buffer = {};
-	VkDeviceMemory color_mem    = {};
+    VkBuffer colorBuffer = {};
+    VkDeviceMemory colorMem = {};
 
-	VkBuffer       index_buffer = {};
-	VkDeviceMemory index_mem    = {};
+    VkBuffer indexBuffer = {};
+    VkDeviceMemory indexMem = {};
 };
 
 /// Uniform buffer
 struct PerFrameDataCpu
 {
-	alignas(16) glm::mat4 view;
-	alignas(16) glm::mat4 projection;
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 projection;
 };
 
 template <size_t N>
 struct PerFrameDataGpu
 {
-	VkBuffer        buffers[N]         = {};
-	VkDeviceMemory  memory[N]          = {};
-	void*           data_mapped[N]     = {};
-	VkDescriptorSet descriptor_sets[N] = {};
+    VkBuffer buffers[N] = {};
+    VkDeviceMemory memory[N] = {};
+    void *data_mapped[N] = {};
+    VkDescriptorSet descriptorSets[N] = {};
 };
 
 /**
@@ -67,30 +67,30 @@ struct PerFrameDataGpu
  */
 struct FramesInFlightType
 {
-	/**
-	 * @brief Defines the amount of frames in flight generated.
-	 */
-	static constexpr size_t MAX_FIF_COUNT = 2;
+    /**
+     * @brief Defines the amount of frames in flight generated.
+     */
+    static constexpr size_t MAX_FIF_COUNT = 2;
 
-	/**
-	 * Semaphore signaled when the image is acquired by the swapchain.
-	 */
-	VkSemaphore acquiredImageSemaphore[MAX_FIF_COUNT] = {};
+    /**
+     * Semaphore signaled when the image is acquired by the swapchain.
+     */
+    VkSemaphore acquiredImageSemaphore[MAX_FIF_COUNT] = {};
 
-	/**
-	 * Fence signaled when all commands submitted have completed execution.
-	 */
-	VkFence submitFence[MAX_FIF_COUNT] = {};
+    /**
+     * Fence signaled when all commands submitted have completed execution.
+     */
+    VkFence submitFence[MAX_FIF_COUNT] = {};
 
-	/**
-	 *
-	 */
-	VkCommandPool commandPool[MAX_FIF_COUNT] = {};
+    /**
+     *
+     */
+    VkCommandPool commandPool[MAX_FIF_COUNT] = {};
 
-	/**
-	 *
-	 */
-	VkCommandBuffer commandBuffer[MAX_FIF_COUNT] = {};
+    /**
+     *
+     */
+    VkCommandBuffer commandBuffer[MAX_FIF_COUNT] = {};
 };
 
 /**
@@ -102,210 +102,210 @@ struct FramesInFlightType
  */
 struct PresentationFrameType
 {
-	/**
-	 *
-	 */
-	VkImage *image = {};
+    /**
+     *
+     */
+    VkImage *image = {};
 
-	/**
-	 *
-	 */
-	VkImageView *imageView = {};
+    /**
+     *
+     */
+    VkImageView *imageView = {};
 
-	/**
-	 *
-	 */
-	VkFramebuffer *framebuffer = {};
+    /**
+     *
+     */
+    VkFramebuffer *framebuffer = {};
 
-	/**
-	 *
-	 */
-	VkSemaphore *renderFinishedSemaphore = {};
+    /**
+     *
+     */
+    VkSemaphore *renderFinishedSemaphore = {};
 };
 
 class Renderer
 {
 public:
-	/// Init all renderer resources
-	void Init();
+    /// Init all renderer resources
+    void Init();
 
-	/// Issue renderer commands and draw on the screen
-	void Update(double delta_time);
+    /// Issue renderer commands and draw on the screen
+    void Update(double delta_time);
 
-	/// De-init all renderer resources in order
-	void Teardown() const;
-
-private:
-	void InitInstance();
-
-	void InitSurface();
-
-	void InitDevice();
-
-	void InitSwapchain();
-
-	/// Multi-sample image resolver, depth-stencil image
-	void InitOtherImages();
-
-	void InitCommand();
-
-	void InitBatch();
-
-	void InitFramebuffers() const;
-
-	void InitRenderpass();
-
-	void InitUniformBuffer();
-
-	void InitPipeline();
-
-	void PrepareDepthStencil();
+    /// De-init all renderer resources in order
+    void Teardown() const;
 
 private:
-	/**
-	 *
-	 */
-	VkInstance instance = {};
+    void InitInstance();
 
-	/**
-	 *
-	 */
-	VkDebugUtilsMessengerEXT debugMessenger = {};
+    void InitSurface();
 
-	/**
-	 *
-	 */
-	VkPhysicalDevice gpu = {};
+    void InitDevice();
 
-	/**
-	 *
-	 */
-	VkDevice device = {};
+    void InitSwapchain();
 
-	/**
-	 *
-	 */
-	VkQueue queue = {};
+    /// Multi-sample image resolver, depth-stencil image
+    void InitOtherImages();
 
-	/**
-	 *
-	 */
-	uint32_t queueFamilyIndex = {};
+    void InitCommand();
 
-	/**
-	 *
-	 */
-	FramesInFlightType framesInFlight = {};
+    void InitBatch();
 
-	/**
-	 *
-	 */
-	VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
+    void InitFramebuffers() const;
 
-	/**
-	 *
-	 */
-	VkSurfaceFormatKHR surfaceFormat = {};
+    void InitRenderpass();
 
-	/**
-	 *
-	 */
-	VkFormat depthStencilFormat = {};
+    void InitUniformBuffer();
 
-	/**
-	 *
-	 */
-	SDL_Window* window = {};
+    void InitPipeline();
 
-	/**
-	 *
-	 */
-	VkSurfaceKHR surface = {};
+    void PrepareDepthStencil();
 
-	/**
-	 *
-	 */
-	VkSwapchainKHR swapchain = {};
+private:
+    /**
+     *
+     */
+    VkInstance instance = {};
 
-	/**
-	 *
-	 */
-	PresentationFrameType presentationFrames = {};
+    /**
+     *
+     */
+    VkDebugUtilsMessengerEXT debugMessenger = {};
 
-	/**
-	 *
-	 */
-	VkImage framebufferSampleImage = {};
+    /**
+     *
+     */
+    VkPhysicalDevice gpu = {};
 
-	/**
-	 *
-	 */
-	VkImageView framebufferSampleImageView = {};
+    /**
+     *
+     */
+    VkDevice device = {};
 
-	/**
-	 *
-	 */
-	VkDeviceMemory framebufferSampleImageMemory = {};
+    /**
+     *
+     */
+    VkQueue queue = {};
 
-	/**
-	 *
-	 */
-	VkImage depthStencilImage = {};
+    /**
+     *
+     */
+    uint32_t queueFamilyIndex = {};
 
-	/**
-	 *
-	 */
-	VkImageView depthStencilImageView = {};
+    /**
+     *
+     */
+    FramesInFlightType framesInFlight = {};
 
-	/**
-	 *
-	 */
-	VkDeviceMemory depthStencilMemory = {};
+    /**
+     *
+     */
+    VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
 
-	/**
-	 *
-	 */
-	PerFrameDataGpu<FramesInFlightType::MAX_FIF_COUNT> uniformBufferFrames = {};
+    /**
+     *
+     */
+    VkSurfaceFormatKHR surfaceFormat = {};
 
-	/**
-	 *
-	 */
-	VkRenderPass renderPass = {};
+    /**
+     *
+     */
+    VkFormat depthStencilFormat = {};
 
-	/**
-	 *
-	 */
-	VkPipelineLayout pipelineLayout = {};
+    /**
+     *
+     */
+    SDL_Window *window = {};
 
-	/**
-	 *
-	 */
-	VkPipeline pipeline = {};
+    /**
+     *
+     */
+    VkSurfaceKHR surface = {};
 
-	/**
-	 *
-	 */
-	VkPipeline pipelineWireframe = {};
+    /**
+     *
+     */
+    VkSwapchainKHR swapchain = {};
 
-	/**
-	 *
-	 */
-	VkDescriptorSetLayout descriptorSetLayout = {};
+    /**
+     *
+     */
+    PresentationFrameType presentationFrames = {};
 
-	/**
-	 *
-	 */
-	VkDescriptorPool descriptorPool = {};
+    /**
+     *
+     */
+    VkImage framebufferSampleImage = {};
 
-	/**
-	 *
-	 */
-	BatchCpu batchData = {};
+    /**
+     *
+     */
+    VkImageView framebufferSampleImageView = {};
 
-	/**
-	 *
-	 */
-	BatchGpu batch = {};
+    /**
+     *
+     */
+    VkDeviceMemory framebufferSampleImageMemory = {};
+
+    /**
+     *
+     */
+    VkImage depthStencilImage = {};
+
+    /**
+     *
+     */
+    VkImageView depthStencilImageView = {};
+
+    /**
+     *
+     */
+    VkDeviceMemory depthStencilMemory = {};
+
+    /**
+     *
+     */
+    PerFrameDataGpu<FramesInFlightType::MAX_FIF_COUNT> uniformBufferFrames = {};
+
+    /**
+     *
+     */
+    VkRenderPass renderPass = {};
+
+    /**
+     *
+     */
+    VkPipelineLayout pipelineLayout = {};
+
+    /**
+     *
+     */
+    VkPipeline pipeline = {};
+
+    /**
+     *
+     */
+    VkPipeline pipelineWireframe = {};
+
+    /**
+     *
+     */
+    VkDescriptorSetLayout descriptorSetLayout = {};
+
+    /**
+     *
+     */
+    VkDescriptorPool descriptorPool = {};
+
+    /**
+     *
+     */
+    BatchCpu batchData = {};
+
+    /**
+     *
+     */
+    BatchGpu batch = {};
 };
 }
 
