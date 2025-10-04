@@ -14,6 +14,16 @@
 
 #include <SDL2/SDL_vulkan.h>
 
+namespace Utils
+{
+
+float ToClosestPowerOfTwo(const float x)
+{
+    return pow(2.0f, ceil(log2(x)));
+}
+
+}
+
 namespace Renderer
 {
 // @todo just for testing purpose.
@@ -826,7 +836,10 @@ void Renderer::InitBatch()
             1.0f));
     batchData.color = defaultColors;
 
-    const size_t positionBufferSize = sizeof(glm::vec3) * batchData.position.size();
+    const size_t actualPositionBufferSize = sizeof(glm::vec3) * batchData.position.size();
+    // Allocate a buffer with greater size than requested
+    const size_t positionBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
+        static_cast<float>(actualPositionBufferSize)));;
     vk_create_buffer(
         device,
         gpu,
@@ -850,13 +863,15 @@ void Renderer::InitBatch()
     memcpy(
         positionData,
         &batchData.position[0],
-        positionBufferSize);
+        sizeof(glm::vec3) * batchData.position.size()); // Write only the actual mesh data size.
 
     vkUnmapMemory(
         device,
         batch.positionMem);
 
-    const size_t normalBufferSize = sizeof(glm::vec3) * batchData.normals.size();
+    const size_t actualNormalBufferSize = sizeof(glm::vec3) * batchData.normals.size();
+    const size_t normalBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
+        static_cast<float>(actualNormalBufferSize)));
     vk_create_buffer(
         device,
         gpu,
@@ -880,13 +895,15 @@ void Renderer::InitBatch()
     memcpy(
         normal_data,
         &batchData.normals[0],
-        normalBufferSize);
+        sizeof(glm::vec3) * batchData.normals.size());
 
     vkUnmapMemory(
         device,
         batch.normalMem);
 
-    const size_t colorBufferSize = sizeof(glm::vec4) * batchData.color.size();
+    const size_t actualColorBufferSize = sizeof(glm::vec4) * batchData.color.size();
+    const size_t colorBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
+        static_cast<float>(actualColorBufferSize)));
     vk_create_buffer(
         device,
         gpu,
@@ -900,11 +917,13 @@ void Renderer::InitBatch()
     void *colorData = nullptr;
     VK_CHECK(vkMapMemory(device, batch.colorMem, 0, colorBufferSize, 0, &colorData));
 
-    memcpy(colorData, &batchData.color[0], colorBufferSize);
+    memcpy(colorData, &batchData.color[0], sizeof(glm::vec4) * batchData.color.size());
 
     vkUnmapMemory(device, batch.colorMem);
 
-    const size_t indexBufferSize = sizeof(uint32_t) * batchData.indices.size();
+    const size_t actualIndexBufferSize = sizeof(uint32_t) * batchData.indices.size();
+    const size_t indexBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
+        static_cast<float>(actualIndexBufferSize)));
     vk_create_buffer(device, gpu, indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         nullptr,
@@ -923,11 +942,15 @@ void Renderer::InitBatch()
     memcpy(
         index_data,
         &batchData.indices[0],
-        indexBufferSize);
+        sizeof(uint32_t) * batchData.indices.size());
 
     vkUnmapMemory(
         device,
         batch.indexMem);
+
+    printf("\ntotal mem: %zd",
+        (positionBufferSize + normalBufferSize + colorBufferSize + indexBufferSize) /
+        (1024 * 1024));
 }
 
 void Renderer::InitFramebuffers() const
