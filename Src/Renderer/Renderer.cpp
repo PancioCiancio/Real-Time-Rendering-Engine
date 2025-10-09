@@ -9,8 +9,10 @@
 
 // Must define this macro and include the header file in one and only one implementation file.
 #define VOLK_IMPLEMENTATION
-// ReSharper disable once CppUnusedIncludeDirective
 #include <volk/volk.h>
+// ReSharper disable once CppUnusedIncludeDirective
+#include "Memory.h"
+
 
 #include <SDL2/SDL_vulkan.h>
 
@@ -28,7 +30,9 @@ namespace Renderer
 {
 // @todo just for testing purpose.
 static uint32_t INDICES_COUNT = {};
-
+static VkDeviceSize positionOffset = {};
+static VkDeviceSize normalOffset = {};
+static VkDeviceSize colorOffset = {};
 
 VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -238,6 +242,32 @@ void Renderer::Update(double delta_time)
         VK_CHECK(vkBeginCommandBuffer(framesInFlight.commandBuffer[fifIndex],
             &commandBufferBeginInfo));
 
+        VkBufferMemoryBarrier memoryBarrier = {};
+        memoryBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        memoryBarrier.size = vertexBufferSize;
+        memoryBarrier.buffer = vertexBuffer;
+        memoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        memoryBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+        memoryBarrier.offset = 0;
+        memoryBarrier.srcQueueFamilyIndex = queueFamilyIndex;
+        memoryBarrier.dstQueueFamilyIndex = queueFamilyIndex;
+
+        vkCmdPipelineBarrier(framesInFlight.commandBuffer[fifIndex],
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+            0, 0, nullptr, 1, &memoryBarrier, 0, nullptr);
+
+        VkBufferCopy bufferCopy = {};
+        bufferCopy.srcOffset = 0;
+        bufferCopy.dstOffset = 0;
+        bufferCopy.size = vertexBufferSize;
+
+        vkCmdCopyBuffer(framesInFlight.commandBuffer[fifIndex],
+            stageVertexBuffer,
+            vertexBuffer,
+            1,
+            &bufferCopy);
+
         vkCmdBindDescriptorSets(framesInFlight.commandBuffer[fifIndex],
             VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
             &uniformBufferFrames.descriptorSets[fifIndex], 0, nullptr);
@@ -283,15 +313,15 @@ void Renderer::Update(double delta_time)
         vkCmdSetScissor(framesInFlight.commandBuffer[fifIndex], 0, 1, &scissor);
 
         const VkBuffer bindsBuffer[] = {
-            batch.positionBuffer,
-            batch.colorBuffer,
-            batch.normalBuffer,
+            vertexBuffer,
+            vertexBuffer,
+            vertexBuffer,
         };
 
-        constexpr VkDeviceSize OFFSETS[] = {
-            0,
-            0,
-            0
+        const VkDeviceSize OFFSETS[] = {
+            positionOffset,
+            normalOffset,
+            colorOffset
         };
 
         vkCmdBindVertexBuffers(framesInFlight.commandBuffer[fifIndex], 0, 3, &bindsBuffer[0],
@@ -387,32 +417,11 @@ void Renderer::Teardown() const
         pipelineWireframe,
         nullptr);
 
-    vkDestroyBuffer(
-        device,
-        batch.colorBuffer,
-        nullptr);
-    vkFreeMemory(
-        device,
-        batch.colorMem,
-        nullptr);
+    vkDestroyBuffer(device, stageVertexBuffer, nullptr);
+    vkFreeMemory(device, stageVertexMemory, nullptr);
 
-    vkDestroyBuffer(
-        device,
-        batch.normalBuffer,
-        nullptr);
-    vkFreeMemory(
-        device,
-        batch.normalMem,
-        nullptr);
-
-    vkDestroyBuffer(
-        device,
-        batch.positionBuffer,
-        nullptr);
-    vkFreeMemory(
-        device,
-        batch.positionMem,
-        nullptr);
+    vkDestroyBuffer(device, vertexBuffer, nullptr);
+    vkFreeMemory(device, vertexMemory, nullptr);
 
     vkDestroyBuffer(
         device,
@@ -821,105 +830,68 @@ void Renderer::InitCommand()
 
 void Renderer::InitBatch()
 {
-    MeshLoader::Load(
-        "../Resources/Meshes/SM_Behemoth.fbx",
-        &batchData);
+    // Get the gpu required memory alignment
+    VkPhysicalDeviceProperties physicalDeviceProperties = {};
+    vkGetPhysicalDeviceProperties(gpu, &physicalDeviceProperties);
+    const VkDeviceSize minAlignment = physicalDeviceProperties.limits.minMemoryMapAlignment;
 
+    // Load the mesh.
+    MeshLoader::Load("../Resources/Meshes/SM_Behemoth.fbx", &batchData);
+
+    // Update the global indices count.
     INDICES_COUNT = batchData.indices.size();
 
-    std::vector<glm::vec4> defaultColors(
-        batchData.position.size(),
-        glm::vec4(
-            .36f,
-            .36f,
-            .5f,
-            1.0f));
+    // Update the colors data.
+    std::vector<glm::vec4> defaultColors(batchData.position.size(),
+        glm::vec4(.36f, .36f, .6391f, 1.0f));
     batchData.color = defaultColors;
 
-    const size_t actualPositionBufferSize = sizeof(glm::vec3) * batchData.position.size();
-    // Allocate a buffer with greater size than requested
-    const size_t positionBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
-        static_cast<float>(actualPositionBufferSize)));;
-    vk_create_buffer(
-        device,
+    // Raw data
+    const VkDeviceSize positionSize = sizeof(glm::vec3) * batchData.position.size();
+    const VkDeviceSize normalSize = sizeof(glm::vec3) * batchData.normals.size();
+    const VkDeviceSize colorSize = sizeof(glm::vec4) * batchData.color.size();
+
+    // Calculate aligned offset
+    positionOffset = 0;
+    normalOffset = Memory::Align(positionOffset + positionSize, minAlignment);
+    colorOffset = Memory::Align(normalOffset + normalSize, minAlignment);
+
+    // The total size required for the buffer
+    vertexBufferSize = colorOffset + colorSize;
+
+    // Create the staging buffer
+    vk_create_buffer(device,
         gpu,
-        positionBufferSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+        vertexBufferSize,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         nullptr,
-        &batch.positionBuffer,
-        &batch.positionMem);
+        &stageVertexBuffer,
+        &stageVertexMemory);
 
-    void *positionData = nullptr;
-    VK_CHECK(
-        vkMapMemory(
-            device,
-            batch.positionMem,
-            0,
-            positionBufferSize,
-            0,
-            &positionData));
-
-    memcpy(
-        positionData,
-        &batchData.position[0],
-        sizeof(glm::vec3) * batchData.position.size()); // Write only the actual mesh data size.
-
-    vkUnmapMemory(
-        device,
-        batch.positionMem);
-
-    const size_t actualNormalBufferSize = sizeof(glm::vec3) * batchData.normals.size();
-    const size_t normalBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
-        static_cast<float>(actualNormalBufferSize)));
-    vk_create_buffer(
-        device,
+    // Create the device local buffer
+    vk_create_buffer(device,
         gpu,
-        normalBufferSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+        vertexBufferSize,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         nullptr,
-        &batch.normalBuffer,
-        &batch.normalMem);
+        &vertexBuffer,
+        &vertexMemory);
 
-    void *normal_data = nullptr;
-    VK_CHECK(
-        vkMapMemory(
-            device,
-            batch.normalMem,
-            0,
-            normalBufferSize,
-            0,
-            &normal_data));
+    void *data = {};
 
-    memcpy(
-        normal_data,
-        &batchData.normals[0],
-        sizeof(glm::vec3) * batchData.normals.size());
+    // Map the entire buffer's memory range.
+    vkMapMemory(device, stageVertexMemory, 0, vertexBufferSize, 0, &data);
 
-    vkUnmapMemory(
-        device,
-        batch.normalMem);
+    // Copy each data set to its calculated offset
+    char *basePtr = static_cast<char *>(data);
+    memcpy(basePtr + positionOffset, batchData.position.data(), positionSize);
+    memcpy(basePtr + normalOffset, batchData.normals.data(), normalSize);
+    memcpy(basePtr + colorOffset, batchData.color.data(), colorSize);
 
-    const size_t actualColorBufferSize = sizeof(glm::vec4) * batchData.color.size();
-    const size_t colorBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
-        static_cast<float>(actualColorBufferSize)));
-    vk_create_buffer(
-        device,
-        gpu,
-        colorBufferSize,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        nullptr,
-        &batch.colorBuffer,
-        &batch.colorMem);
-
-    void *colorData = nullptr;
-    VK_CHECK(vkMapMemory(device, batch.colorMem, 0, colorBufferSize, 0, &colorData));
-
-    memcpy(colorData, &batchData.color[0], sizeof(glm::vec4) * batchData.color.size());
-
-    vkUnmapMemory(device, batch.colorMem);
+    // Unmap the memory
+    vkUnmapMemory(device, stageVertexMemory);
 
     const size_t actualIndexBufferSize = sizeof(uint32_t) * batchData.indices.size();
     const size_t indexBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
@@ -947,10 +919,6 @@ void Renderer::InitBatch()
     vkUnmapMemory(
         device,
         batch.indexMem);
-
-    printf("\ntotal mem: %zd",
-        (positionBufferSize + normalBufferSize + colorBufferSize + indexBufferSize) /
-        (1024 * 1024));
 }
 
 void Renderer::InitFramebuffers() const
@@ -1165,18 +1133,18 @@ void Renderer::InitPipeline()
             .stride = sizeof(glm::vec3),
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
         },
-        // color.
+        // normal.
         {
             .binding = 1,
+            .stride = sizeof(glm::vec3),
+            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
+        },
+        // color.
+        {
+            .binding = 2,
             .stride = sizeof(glm::vec4),
             .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
         },
-        // normal.
-        {
-            .binding = 2,
-            .stride = sizeof(glm::vec3),
-            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-        }
     };
 
     constexpr VkVertexInputAttributeDescription attributeDescs[3] = {
@@ -1189,15 +1157,16 @@ void Renderer::InitPipeline()
         {
             .location = 1,
             .binding = 1,
-            .format = VK_FORMAT_R32G32B32A32_SFLOAT,
+            .format = VK_FORMAT_R32G32B32_SFLOAT,
             .offset = 0
         },
         {
             .location = 2,
             .binding = 2,
-            .format = VK_FORMAT_R32G32B32_SFLOAT,
+            .format = VK_FORMAT_R32G32B32A32_SFLOAT,
             .offset = 0
-        }
+        },
+
     };
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};

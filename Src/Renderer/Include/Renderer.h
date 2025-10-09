@@ -306,6 +306,31 @@ private:
      *
      */
     BatchGpu batch = {};
+
+    /**
+     *
+     */
+    VkDeviceSize vertexBufferSize = {};
+
+    /**
+     *
+     */
+    VkBuffer stageVertexBuffer = {};
+
+    /**
+     *
+     */
+    VkDeviceMemory stageVertexMemory = {};
+
+    /**
+     *
+     */
+    VkBuffer vertexBuffer = {};
+
+    /**
+     *
+     */
+    VkDeviceMemory vertexMemory = {};
 };
 }
 
