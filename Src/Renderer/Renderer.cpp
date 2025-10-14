@@ -242,21 +242,24 @@ void Renderer::Update(double delta_time)
         VK_CHECK(vkBeginCommandBuffer(framesInFlight.commandBuffer[fifIndex],
             &commandBufferBeginInfo));
 
-        VkBufferMemoryBarrier memoryBarrier = {};
-        memoryBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-        memoryBarrier.size = vertexBufferSize;
-        memoryBarrier.buffer = vertexBuffer;
-        memoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        memoryBarrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
-        memoryBarrier.offset = 0;
-        memoryBarrier.srcQueueFamilyIndex = queueFamilyIndex;
-        memoryBarrier.dstQueueFamilyIndex = queueFamilyIndex;
 
+        // Buffer copy cmd barrier
+        VkBufferMemoryBarrier memoryBarrier[2] = {};
+        // From read to write
+        memoryBarrier[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        memoryBarrier[0].size = vertexBufferSize;
+        memoryBarrier[0].buffer = vertexBuffer;
+        memoryBarrier[0].srcAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+        memoryBarrier[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        memoryBarrier[0].offset = 0;
+        memoryBarrier[0].srcQueueFamilyIndex = queueFamilyIndex;
+        memoryBarrier[0].dstQueueFamilyIndex = queueFamilyIndex;
         vkCmdPipelineBarrier(framesInFlight.commandBuffer[fifIndex],
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-            0, 0, nullptr, 1, &memoryBarrier, 0, nullptr);
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, 0, nullptr, 1, &memoryBarrier[0], 0, nullptr);
 
+        // Buffer Copy cmd
         VkBufferCopy bufferCopy = {};
         bufferCopy.srcOffset = 0;
         bufferCopy.dstOffset = 0;
@@ -267,6 +270,20 @@ void Renderer::Update(double delta_time)
             vertexBuffer,
             1,
             &bufferCopy);
+
+        // From write to read
+        memoryBarrier[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+        memoryBarrier[1].size = vertexBufferSize;
+        memoryBarrier[1].buffer = vertexBuffer;
+        memoryBarrier[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        memoryBarrier[1].dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+        memoryBarrier[1].offset = 0;
+        memoryBarrier[1].srcQueueFamilyIndex = queueFamilyIndex;
+        memoryBarrier[1].dstQueueFamilyIndex = queueFamilyIndex;
+        vkCmdPipelineBarrier(framesInFlight.commandBuffer[fifIndex],
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+            0, 0, nullptr, 1, &memoryBarrier[1], 0, nullptr);
 
         vkCmdBindDescriptorSets(framesInFlight.commandBuffer[fifIndex],
             VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
