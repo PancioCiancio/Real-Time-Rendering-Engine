@@ -6,13 +6,7 @@
 #include "../FileSystem.h"
 #include "MeshLoader.h"
 #include "VkCommon.h"
-
-// Must define this macro and include the header file in one and only one implementation file.
-#define VOLK_IMPLEMENTATION
-#include <volk/volk.h>
-// ReSharper disable once CppUnusedIncludeDirective
 #include "Memory.h"
-
 
 #include <SDL2/SDL_vulkan.h>
 

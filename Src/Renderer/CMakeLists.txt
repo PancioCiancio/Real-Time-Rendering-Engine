@@ -36,6 +36,11 @@ if (WIN32)
 endif ()
 # TODO: cover all other platforms.
 
+set_source_files_properties(
+        Renderer.cpp
+        PROPERTIES
+        COMPILE_DEFINITIONS VOLK_IMPLEMENTATION)
+
 target_compile_definitions(
         Renderer
         PRIVATE
