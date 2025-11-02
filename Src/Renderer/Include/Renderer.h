@@ -374,7 +374,7 @@ extern "C"
 /**
  *
  * @param pContextType Structure defining the layers and extensions required by the context @see RendererContextType.
- * @param pContext Ptr where the context will be written.
+ * @param ppContext Ptr where the context will be written.
  */
 void init_renderer_context(const RendererContextType *pContextType, RendererContext **ppContext);
 
