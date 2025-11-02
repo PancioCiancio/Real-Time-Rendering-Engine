@@ -334,4 +334,58 @@ private:
 };
 }
 
+
+/***********************************************************
+ * REFACTOR
+ ***********************************************************/
+
+/**
+ *
+ */
+struct RendererContextType
+{
+    const char **ppInstanceLayers;
+    const char **ppInstanceExtensions;
+    const char **ppDeviceExtensions;
+
+    uint32_t InstanceLayersCount;
+    uint32_t InstanceExtensionsCount;
+    uint32_t DeviceExtensionsCount;
+};
+
+/**
+ *
+ */
+struct RendererContext
+{
+    VkInstance pInstance;
+    VkDebugUtilsMessengerEXT pDebugUtilsMessenger;
+
+    VkPhysicalDevice pGpus[16];
+    VkPhysicalDeviceProperties pGpusProperties[16];
+
+    uint32_t GpuCount;
+};
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+/**
+ *
+ * @param pContextType Structure defining the layers and extensions required by the context @see RendererContextType.
+ * @param pContext Ptr where the context will be written.
+ */
+void init_renderer_context(const RendererContextType *pContextType, RendererContext **ppContext);
+
+/**
+ *
+ * @param pContext Ptr to valid context.
+ */
+void teardown_renderer_context(RendererContext *pContext);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif //RUN_H

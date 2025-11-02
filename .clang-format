@@ -8,7 +8,7 @@ IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 ContinuationIndentWidth: 4
-ColumnLimit: 100   # NASA suggested ~80, but in modern C++ templates 100 is a practical balance
+ColumnLimit: 180   # NASA suggested ~80, but in modern C++ templates 100 is a practical balance
 
 # === Braces ===
 BraceWrapping:

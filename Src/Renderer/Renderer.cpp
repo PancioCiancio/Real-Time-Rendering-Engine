@@ -1461,3 +1461,93 @@ void Renderer::PrepareDepthStencil()
     vkQueueWaitIdle(queue);
 }
 } // Renderer
+
+
+/***********************************************************************************************
+ * REFACTOR
+ * *********************************************************************************************/
+#include <malloc.h>
+
+void init_renderer_context(const RendererContextType *pContextType, RendererContext **ppContext)
+{
+    /*** Assertions ***/
+    assert(pContextType); // Must be a valid pointer.
+    assert(ppContext && *ppContext == nullptr); // The value pointer must be valid and not pointing to an already existing renderer.
+
+
+
+    /*** Memory ***/
+    auto context = static_cast<RendererContext *>(_aligned_malloc(sizeof(RendererContext), alignof(RendererContext)));
+    assert(context);
+
+
+
+    /*** Create instance ***/
+    // #TODO: check for error
+    volkInitialize();
+
+    constexpr VkApplicationInfo appInfo = {
+        .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pNext = nullptr,
+        .pApplicationName = "",
+        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+        .pEngineName = "Adro Engine",
+        .engineVersion = VK_MAKE_VERSION(1, 0, 0),
+        .apiVersion = VK_MAKE_VERSION(1, 0, 0),
+    };
+
+    const VkInstanceCreateInfo instanceCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .pApplicationInfo = &appInfo,
+        .enabledLayerCount = pContextType->InstanceLayersCount,
+        .ppEnabledLayerNames = pContextType->ppInstanceLayers,
+        .enabledExtensionCount = pContextType->InstanceExtensionsCount,
+        .ppEnabledExtensionNames = pContextType->ppInstanceExtensions,
+    };
+
+    // #TODO: provide a custom allocator to keep track of memory usage and report.
+    // #TODO: check for error
+    vkCreateInstance(&instanceCreateInfo, nullptr, &context->pInstance);
+
+    // #TODO: check for error.
+    volkLoadInstance(context->pInstance);
+
+    // #TODO: add utils debug messenger.
+
+
+
+    /*** Enumerate physical devices ***/
+    // #TODO: check for error.
+    vkEnumeratePhysicalDevices(context->pInstance, &context->GpuCount, nullptr);
+
+    assert(context->GpuCount < 17); // Can list at max 16 gpus.
+
+    // #TODO: check for error.
+    vkEnumeratePhysicalDevices(context->pInstance, &context->GpuCount, context->pGpus);
+
+
+
+    /*** Write physical device properties ***/
+    for (uint32_t i = 0; i < context->GpuCount; i++)
+    {
+        vkGetPhysicalDeviceProperties(context->pGpus[i], &context->pGpusProperties[i]);
+    }
+
+
+
+    /*** Assignment ***/
+    *ppContext = context;
+}
+
+void teardown_renderer_context(RendererContext *pContext)
+{
+    /*** Assertions ***/
+    assert(pContext);
+
+
+
+    /*** Deallocations ***/
+    _aligned_free(pContext);
+}
