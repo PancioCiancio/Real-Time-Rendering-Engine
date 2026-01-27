@@ -58,7 +58,7 @@ if ("${CMAKE_BUILD_TYPE}" EQUAL "Debug")
     add_custom_command(
             TARGET Renderer POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/ThirdParty/Bin/assimp/assimp-vc143-mtd.dll"
-            "${CMAKE_BINARY_DIR}")
+            "${CMAKE_BINARY_DIR}/Src")
 else ()
     target_link_libraries(
             Renderer
@@ -68,7 +68,7 @@ else ()
     add_custom_command(
             TARGET Renderer POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/ThirdParty/Bin/assimp/assimp-vc143-mt.dll"
-            "${CMAKE_BINARY_DIR}")
+            "${CMAKE_BINARY_DIR}/Src")
 endif ()
 
 configure_file("${CMAKE_SOURCE_DIR}/Resources/Shaders/vert.spv" "${CMAKE_BINARY_DIR}/Resources/Shaders/vert.spv" COPYONLY)
