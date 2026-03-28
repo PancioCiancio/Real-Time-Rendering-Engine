@@ -125,6 +125,30 @@
                     "intelliSenseMode": "windows-clang-x64"
                 }
             }
+        },
+        {
+            "name": "windows-gcc-debug",
+            "displayName": "GCC Debug",
+            "description": "Target Windows with MSYS2 GCC, debug build type",
+            "inherits": "conf-windows-common",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++",
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_FLAGS": "-Werror -Wpedantic -fdiagnostics-show-line-numbers"
+            }
+        },
+        {
+            "name": "windows-gcc-release",
+            "displayName": "GCC Release",
+            "description": "Target Windows with MSYS2 GCC, release build type",
+            "inherits": "conf-windows-common",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++",
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_CXX_FLAGS": "-Werror -Wpedantic -fdiagnostics-show-line-numbers"
+            }
         }
     ],
     "testPresets": [
