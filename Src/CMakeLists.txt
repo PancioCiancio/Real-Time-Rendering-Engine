@@ -1,18 +1,13 @@
-cmake_minimum_required(VERSION 3.28)
+add_subdirectory(graphics)
 
-add_subdirectory(Renderer)
-
-add_executable(
-        Engine
+add_executable(Engine
         "Main.cpp"
         "FileSystem.cpp")
 
-target_link_libraries(
-        Engine
+target_link_libraries(Engine
         PRIVATE
-        Renderer)
+        graphics)
 
-target_compile_definitions(
-        Engine
+target_compile_definitions(Engine
         PRIVATE
         SDL_MAIN_HANDLED)

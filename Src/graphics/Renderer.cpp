@@ -847,7 +847,7 @@ void Renderer::InitBatch()
     const VkDeviceSize minAlignment = physicalDeviceProperties.limits.minMemoryMapAlignment;
 
     // Load the mesh.
-    MeshLoader::Load("../Resources/Meshes/SM_Behemoth.fbx", &batchData);
+    MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
 
     // Update the global indices count.
     INDICES_COUNT = batchData.indices.size();
@@ -1078,9 +1078,9 @@ void Renderer::InitUniformBuffer()
 void Renderer::InitPipeline()
 {
     auto vertShaderCode = FileSystem::ReadFile(
-        "../Resources/Shaders/vert.spv");
+        "../resources/shaders/vert.spv");
     auto fragShaderCode = FileSystem::ReadFile(
-        "../Resources/Shaders/frag.spv");
+        "../resources/shaders/frag.spv");
 
     VkShaderModule shaderModules[2] = {};
 
