@@ -100,7 +100,8 @@
                 "CMAKE_C_COMPILER": "clang",
                 "CMAKE_CXX_COMPILER": "clang++",
                 "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_CXX_FLAGS": "-Werror -Wpedantic -fdiagnostics-show-line-numbers"
+                "CMAKE_CXX_FLAGS": "-Werror -Wpedantic -fdiagnostics-show-line-numbers",
+                "CMAKE_CXX_CLANG_TIDY": "clang-tidy"
             },
             "vendor": {
                 "microsoft.com/VisualStudioSettings/CMake/1.0": {
