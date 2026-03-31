@@ -7,8 +7,10 @@
 #include "MeshLoader.h"
 #include "VkCommon.h"
 #include "Memory.h"
+#include "vk_assert.h"
 
 #include <SDL2/SDL_vulkan.h>
+#include <print>
 
 namespace Utils
 {
@@ -22,6 +24,7 @@ float ToClosestPowerOfTwo(const float x)
 
 namespace Renderer
 {
+
 // @todo just for testing purpose.
 static uint32_t INDICES_COUNT = {};
 static VkDeviceSize positionOffset = {};
@@ -35,7 +38,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
     void *pUserData)
 {
     // ReSharper disable once CppDFAUnusedValue
-    const char *severity = "";
+    const char *severity;
     switch (messageSeverity)
     {
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: severity = "[VERBOSE]";
@@ -52,7 +55,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
 
     // @TODO:	cover the message type as well....
 
-    std::printf("[VK] %s %s\n", severity, callbackData->pMessage);
+    std::println("[VK] %s %s", severity, callbackData->pMessage);
 
     return VK_FALSE;
 }

@@ -6,7 +6,12 @@ add_executable(Engine
 
 target_link_libraries(Engine
         PRIVATE
-        graphics)
+        graphics
+        stdc++exp)
+
+target_include_directories(Engine
+        PRIVATE
+        ${CMAKE_SOURCE_DIR}/include)
 
 target_compile_definitions(Engine
         PRIVATE
