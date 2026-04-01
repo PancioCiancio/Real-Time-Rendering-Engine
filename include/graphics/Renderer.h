@@ -1,5 +1,9 @@
-#ifndef ORDA_GRAPHICS_RENDERER_H_
-#define ORDA_GRAPHICS_RENDERER_H_
+//
+// Created by apant on 02/08/2025.
+//
+
+#ifndef RUN_H
+#define RUN_H
 
 #include <Volk/volk.h>
 #include <SDL2/SDL.h>
@@ -158,41 +162,176 @@ private:
     void PrepareDepthStencil();
 
 private:
+    /**
+     *
+     */
     VkInstance instance = {};
+
+    /**
+     *
+     */
     VkDebugUtilsMessengerEXT debugMessenger = {};
+
+    /**
+     *
+     */
     VkPhysicalDevice gpu = {};
+
+    /**
+     *
+     */
     VkDevice device = {};
+
+    /**
+     *
+     */
     VkQueue queue = {};
+
+    /**
+     *
+     */
     uint32_t queueFamilyIndex = {};
+
+    /**
+     *
+     */
     FramesInFlightType framesInFlight = {};
+
+    /**
+     *
+     */
     VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
+
+    /**
+     *
+     */
     VkSurfaceFormatKHR surfaceFormat = {};
+
+    /**
+     *
+     */
     VkFormat depthStencilFormat = {};
+
+    /**
+     *
+     */
     SDL_Window *window = {};
+
+    /**
+     *
+     */
     VkSurfaceKHR surface = {};
+
+    /**
+     *
+     */
     VkSwapchainKHR swapchain = {};
+
+    /**
+     *
+     */
     PresentationFrameType presentationFrames = {};
+
+    /**
+     *
+     */
     VkImage framebufferSampleImage = {};
+
+    /**
+     *
+     */
     VkImageView framebufferSampleImageView = {};
+
+    /**
+     *
+     */
     VkDeviceMemory framebufferSampleImageMemory = {};
+
+    /**
+     *
+     */
     VkImage depthStencilImage = {};
+
+    /**
+     *
+     */
     VkImageView depthStencilImageView = {};
+
+    /**
+     *
+     */
     VkDeviceMemory depthStencilMemory = {};
+
+    /**
+     *
+     */
     PerFrameDataGpu<FramesInFlightType::MAX_FIF_COUNT> uniformBufferFrames = {};
+
+    /**
+     *
+     */
     VkRenderPass renderPass = {};
+
+    /**
+     *
+     */
     VkPipelineLayout pipelineLayout = {};
+
+    /**
+     *
+     */
     VkPipeline pipeline = {};
+
+    /**
+     *
+     */
     VkPipeline pipelineWireframe = {};
+
+    /**
+     *
+     */
     VkDescriptorSetLayout descriptorSetLayout = {};
+
+    /**
+     *
+     */
     VkDescriptorPool descriptorPool = {};
+
+    /**
+     *
+     */
     BatchCpu batchData = {};
+
+    /**
+     *
+     */
     BatchGpu batch = {};
+
+    /**
+     *
+     */
     VkDeviceSize vertexBufferSize = {};
+
+    /**
+     *
+     */
     VkBuffer stageVertexBuffer = {};
+
+    /**
+     *
+     */
     VkDeviceMemory stageVertexMemory = {};
+
+    /**
+     *
+     */
     VkBuffer vertexBuffer = {};
+
+    /**
+     *
+     */
     VkDeviceMemory vertexMemory = {};
 };
 }
 
-#endif //ORDA_GRAPHICS_RENDERER_H_
+#endif //RUN_H

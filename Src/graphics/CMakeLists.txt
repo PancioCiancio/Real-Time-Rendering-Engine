@@ -3,19 +3,13 @@ find_package(Vulkan REQUIRED)
 add_library(graphics STATIC
         "VkCommon.cpp"
         "MeshLoader.cpp"
-        "Renderer.cpp"
-        "renderer_refactor.cpp"
-        "query_gpu.cpp"
-        "query_queue_family.cpp")
+        "Renderer.cpp")
 
 target_include_directories(graphics
         PUBLIC
         ${CMAKE_SOURCE_DIR}/include/graphics
         "$ENV{VULKAN_SDK}/Include"
-        ${CMAKE_SOURCE_DIR}/external/include
-        
-        PRIVATE
-        include)
+        ${CMAKE_SOURCE_DIR}/external/include)
 
 target_link_libraries(graphics
         PRIVATE
@@ -28,9 +22,6 @@ endif ()
 # TODO: cover all other platforms.
 
 set_source_files_properties(renderer.cpp PROPERTIES
-        COMPILE_DEFINITIONS VOLK_IMPLEMENTATION)
-
-set_source_files_properties(renderer_refactor.cpp PROPERTIES
         COMPILE_DEFINITIONS VOLK_IMPLEMENTATION)
 
 target_compile_definitions(graphics PRIVATE

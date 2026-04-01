@@ -9,8 +9,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "vk_assert.h"
-
 namespace Renderer
 {
 // ==========================
