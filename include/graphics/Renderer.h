@@ -244,17 +244,17 @@ private:
     /**
      *
      */
-    VkImage depthStencilImage = {};
+    VkImage depth_stencil_image_ = {};
 
     /**
      *
      */
-    VkImageView depthStencilImageView = {};
+    VkImageView depth_stencil_image_view_ = {};
 
     /**
      *
      */
-    VkDeviceMemory depthStencilMemory = {};
+    VkDeviceMemory depth_stencil_memory_ = {};
 
     /**
      *
