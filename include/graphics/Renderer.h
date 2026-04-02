@@ -200,11 +200,6 @@ private:
     /**
      *
      */
-    VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
-
-    /**
-     *
-     */
     VkSurfaceFormatKHR surfaceFormat = {};
 
     /**
@@ -212,10 +207,9 @@ private:
      */
     VkFormat depthStencilFormat = {};
 
-    /**
-     *
-     */
     SDL_Window *window = {};
+    VkExtent2D extent_ = {};
+    uint32_t image_count_ = 0;
 
     /**
      *

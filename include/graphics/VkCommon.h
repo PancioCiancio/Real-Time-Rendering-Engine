@@ -22,15 +22,6 @@ void vk_query_sample_counts(
     VkPhysicalDevice gpu,
     VkSampleCountFlagBits *p_sample);
 
-/// @todo Platform dependent. Consider to solve the platform implementation at static link time.
-void QueryQueueFamily(
-    VkPhysicalDevice gpu,
-    VkQueueFlagBits queue_flag_bits_requested,
-    bool must_support_presentation,
-    uint32_t family_idx_discarded_count,
-    const uint32_t *family_idx_discarded,
-    uint32_t *p_queue_family_idx);
-
 void vk_query_supported_format(
     VkPhysicalDevice gpu,
     uint32_t requested_format_count,
@@ -38,19 +29,6 @@ void vk_query_supported_format(
     VkImageTiling tiling,
     VkFormatFeatureFlags features,
     VkFormat *p_format);
-
-void vk_query_surface_format(
-    VkPhysicalDevice gpu,
-    VkSurfaceKHR surface,
-    uint32_t required_format_count,
-    const VkFormat *p_required_formats,
-    VkSurfaceFormatKHR *p_format);
-
-
-void vk_query_surface_capabilities(
-    VkPhysicalDevice gpu,
-    VkSurfaceKHR surface,
-    VkSurfaceCapabilitiesKHR *p_surface_capabilities);
 
 
 /// @todo Sketch implementation. Refactor it...
@@ -109,37 +87,6 @@ void vk_create_buffer_view(
     VkBufferView *p_buffer_view);
 #pragma endregion
 
-
-// ==========================
-// Image
-// ==========================
-
-#pragma region VkImage / VkImageView
-void vk_create_image(
-    VkDevice device,
-    VkPhysicalDevice physical_device,
-    VkImageType image_type,
-    VkFormat format,
-    VkExtent3D extent,
-    VkSampleCountFlagBits samples,
-    VkImageTiling tiling,
-    VkImageUsageFlags usage,
-    VkMemoryPropertyFlagBits memory_property_flag_bits,
-    VkAllocationCallbacks *p_allocator,
-    VkImage *p_image,
-    VkDeviceMemory *p_memory);
-
-/// @warning	Provided image must be valid.
-void vk_create_image_view(
-    VkDevice device,
-    VkImage image,
-    VkImageAspectFlags aspect_flags,
-    VkImageViewType view_type,
-    VkFormat format,
-    VkComponentMapping components,
-    VkAllocationCallbacks *p_allocator,
-    VkImageView *p_image_view);
-#pragma endregion
 }
 
 #endif //COMMON_H
