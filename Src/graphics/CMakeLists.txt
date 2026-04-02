@@ -3,7 +3,8 @@ find_package(Vulkan REQUIRED)
 add_library(graphics STATIC
         "VkCommon.cpp"
         "MeshLoader.cpp"
-        "Renderer.cpp")
+        "Renderer.cpp"
+        vk_utils.cpp)
 
 target_include_directories(graphics
         PUBLIC
@@ -13,7 +14,8 @@ target_include_directories(graphics
 
 target_link_libraries(graphics
         PRIVATE
-        "$ENV{VULKAN_SDK}/Lib/SDL2.lib")
+        "$ENV{VULKAN_SDK}/Lib/SDL2.lib"
+        stdc++exp)
 
 
 if (WIN32)

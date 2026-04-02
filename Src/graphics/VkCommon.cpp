@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "vk_utils.h"
+
 namespace Renderer
 {
 // ==========================

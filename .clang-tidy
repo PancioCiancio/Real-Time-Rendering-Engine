@@ -1,16 +1,4 @@
 ---
-Checks: >
-  clang-diagnostic-*,
-  clang-analyzer-*,
-  modernize-*,
-  readability-*,
-  bugprone-*,
-  performance-*,
-  cppcoreguidelines-*,
-  -modernize-use-trailing-return-type,
-  -cppcoreguidelines-avoid-magic-numbers,
-  -readability-magic-numbers
-
 WarningsAsErrors: "*"
 
 HeaderFilterRegex: '.*\/(src|include)\/.*'

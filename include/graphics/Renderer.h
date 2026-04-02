@@ -165,12 +165,12 @@ private:
     /**
      *
      */
-    VkInstance instance = {};
+    VkInstance instance_ = {};
 
     /**
      *
      */
-    VkDebugUtilsMessengerEXT debugMessenger = {};
+    VkDebugUtilsMessengerEXT debug_messenger_ = {};
 
     /**
      *
@@ -180,17 +180,17 @@ private:
     /**
      *
      */
-    VkDevice device = {};
+    VkDevice device_ = {};
 
     /**
      *
      */
-    VkQueue queue = {};
+    VkQueue present_queue_ = {};
 
     /**
      *
      */
-    uint32_t queueFamilyIndex = {};
+    uint32_t present_queue_family_index_ = {};
 
     /**
      *

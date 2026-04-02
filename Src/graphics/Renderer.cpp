@@ -7,6 +7,7 @@
 #include "MeshLoader.h"
 #include "VkCommon.h"
 #include "Memory.h"
+#include "vk_utils.h"
 
 #include <SDL2/SDL_vulkan.h>
 
@@ -35,7 +36,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
     void *pUserData)
 {
     // ReSharper disable once CppDFAUnusedValue
-    const char *severity = "";
+    const char *severity;
     switch (messageSeverity)
     {
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: severity = "[VERBOSE]";
@@ -197,16 +198,16 @@ void Renderer::Update(double delta_time)
 
         cameraPos = glm::mix(cameraPos, cameraPosNew, cameraLerpAlpha);
 
-        vkWaitForFences(device, 1, &framesInFlight.submitFence[fifIndex],
+        vkWaitForFences(device_, 1, &framesInFlight.submitFence[fifIndex],
             VK_TRUE, UINT64_MAX);
 
         uint32_t next_image = 0u;
-        VK_CHECK(vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
+        VK_CHECK(vkAcquireNextImageKHR(device_, swapchain, UINT64_MAX,
             framesInFlight.acquiredImageSemaphore[fifIndex],
             VK_NULL_HANDLE, &next_image));
 
-        vkResetFences(device, 1, &framesInFlight.submitFence[fifIndex]);
-        vkResetCommandPool(device, framesInFlight.commandPool[fifIndex], 0);
+        vkResetFences(device_, 1, &framesInFlight.submitFence[fifIndex]);
+        vkResetCommandPool(device_, framesInFlight.commandPool[fifIndex], 0);
 
         PerFrameDataCpu uBuffer = {
             glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp),
@@ -219,14 +220,14 @@ void Renderer::Update(double delta_time)
         // Flip vulkan Y-axis
         uBuffer.projection[1][1] *= -1;
 
-        VK_CHECK(vkMapMemory(device, uniformBufferFrames.memory[fifIndex], 0,
+        VK_CHECK(vkMapMemory(device_, uniformBufferFrames.memory[fifIndex], 0,
             sizeof(uBuffer), 0, &uniformBufferFrames.data_mapped[fifIndex]));
 
         constexpr size_t uBufferSize = sizeof(PerFrameDataCpu);
 
         memcpy(uniformBufferFrames.data_mapped[fifIndex], &uBuffer, uBufferSize);
 
-        vkUnmapMemory(device, uniformBufferFrames.memory[fifIndex]);
+        vkUnmapMemory(device_, uniformBufferFrames.memory[fifIndex]);
 
         VkCommandBufferBeginInfo commandBufferBeginInfo = {};
         commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -246,8 +247,8 @@ void Renderer::Update(double delta_time)
         memoryBarrier[0].srcAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
         memoryBarrier[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         memoryBarrier[0].offset = 0;
-        memoryBarrier[0].srcQueueFamilyIndex = queueFamilyIndex;
-        memoryBarrier[0].dstQueueFamilyIndex = queueFamilyIndex;
+        memoryBarrier[0].srcQueueFamilyIndex = present_queue_family_index_;
+        memoryBarrier[0].dstQueueFamilyIndex = present_queue_family_index_;
         vkCmdPipelineBarrier(framesInFlight.commandBuffer[fifIndex],
             VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -272,8 +273,8 @@ void Renderer::Update(double delta_time)
         memoryBarrier[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         memoryBarrier[1].dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
         memoryBarrier[1].offset = 0;
-        memoryBarrier[1].srcQueueFamilyIndex = queueFamilyIndex;
-        memoryBarrier[1].dstQueueFamilyIndex = queueFamilyIndex;
+        memoryBarrier[1].srcQueueFamilyIndex = present_queue_family_index_;
+        memoryBarrier[1].dstQueueFamilyIndex = present_queue_family_index_;
         vkCmdPipelineBarrier(framesInFlight.commandBuffer[fifIndex],
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
@@ -370,7 +371,7 @@ void Renderer::Update(double delta_time)
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signal_semaphores;
 
-        VK_CHECK(vkQueueSubmit(queue, 1, &submitInfo, framesInFlight.submitFence[fifIndex]));
+        VK_CHECK(vkQueueSubmit(present_queue_, 1, &submitInfo, framesInFlight.submitFence[fifIndex]));
 
         VkResult result = {};
         VkPresentInfoKHR presentInfo = {};
@@ -383,7 +384,7 @@ void Renderer::Update(double delta_time)
         presentInfo.pResults = &result;
 
         // @todo: cannot present the image if the window is minimized.
-        VK_CHECK(vkQueuePresentKHR(queue, &presentInfo));
+        VK_CHECK(vkQueuePresentKHR(present_queue_, &presentInfo));
 
         // --- Your game update & render logic here ---
         // Example: updateGame(deltaTime); render();
@@ -401,52 +402,52 @@ void Renderer::Update(double delta_time)
 void Renderer::Teardown() const
 {
     VK_CHECK(
-        vkDeviceWaitIdle(device));
+        vkDeviceWaitIdle(device_));
 
     vkDestroyDescriptorPool(
-        device,
+        device_,
         descriptorPool,
         nullptr);
     vkDestroyDescriptorSetLayout(
-        device,
+        device_,
         descriptorSetLayout,
         nullptr);
     vkDestroyRenderPass(
-        device,
+        device_,
         renderPass,
         nullptr);
     vkDestroyPipelineLayout(
-        device,
+        device_,
         pipelineLayout,
         nullptr);
     vkDestroyPipeline(
-        device,
+        device_,
         pipeline,
         nullptr);
     vkDestroyPipeline(
-        device,
+        device_,
         pipelineWireframe,
         nullptr);
 
-    vkDestroyBuffer(device, stageVertexBuffer, nullptr);
-    vkFreeMemory(device, stageVertexMemory, nullptr);
+    vkDestroyBuffer(device_, stageVertexBuffer, nullptr);
+    vkFreeMemory(device_, stageVertexMemory, nullptr);
 
-    vkDestroyBuffer(device, vertexBuffer, nullptr);
-    vkFreeMemory(device, vertexMemory, nullptr);
+    vkDestroyBuffer(device_, vertexBuffer, nullptr);
+    vkFreeMemory(device_, vertexMemory, nullptr);
 
     vkDestroyBuffer(
-        device,
+        device_,
         batch.indexBuffer,
         nullptr);
     vkFreeMemory(
-        device,
+        device_,
         batch.indexMem,
         nullptr);
 
     for (const VkDeviceMemory &memory : uniformBufferFrames.memory)
     {
         vkFreeMemory(
-            device,
+            device_,
             memory,
             nullptr);
     }
@@ -454,90 +455,90 @@ void Renderer::Teardown() const
     for (const VkBuffer &buffer : uniformBufferFrames.buffers)
     {
         vkDestroyBuffer(
-            device,
+            device_,
             buffer,
             nullptr);
     }
 
     // Multisaple image
     vkDestroyImageView(
-        device,
+        device_,
         framebufferSampleImageView,
         nullptr);
     vkDestroyImage(
-        device,
+        device_,
         framebufferSampleImage,
         nullptr);
     vkFreeMemory(
-        device,
+        device_,
         framebufferSampleImageMemory,
         nullptr);
 
     // Depth stencil
     vkDestroyImageView(
-        device,
+        device_,
         depthStencilImageView,
         nullptr);
     vkDestroyImage(
-        device,
+        device_,
         depthStencilImage,
         nullptr);
     vkFreeMemory(
-        device,
+        device_,
         depthStencilMemory,
         nullptr);
 
     for (uint32_t i = 0; i < surfaceCapabilities.minImageCount; i++)
     {
         vkDestroyFramebuffer(
-            device,
+            device_,
             presentationFrames.framebuffer[i],
             nullptr);
 
         vkDestroyImageView(
-            device,
+            device_,
             presentationFrames.imageView[i],
             nullptr);
 
         vkDestroySemaphore(
-            device,
+            device_,
             presentationFrames.renderFinishedSemaphore[i],
             nullptr);
     }
 
     for (const VkSemaphore &framesInFlightSemaphore : framesInFlight.acquiredImageSemaphore)
     {
-        vkDestroySemaphore(device, framesInFlightSemaphore, nullptr);
+        vkDestroySemaphore(device_, framesInFlightSemaphore, nullptr);
     }
 
     for (const VkFence &framesInFlightFence : framesInFlight.submitFence)
     {
-        vkDestroyFence(device, framesInFlightFence, nullptr);
+        vkDestroyFence(device_, framesInFlightFence, nullptr);
     }
 
     vkDestroySwapchainKHR(
-        device,
+        device_,
         swapchain,
         nullptr);
 
     for (const VkCommandPool &framesInFlightCommandPool : framesInFlight.commandPool)
     {
-        vkDestroyCommandPool(device, framesInFlightCommandPool, nullptr);
+        vkDestroyCommandPool(device_, framesInFlightCommandPool, nullptr);
     }
 
     vkDestroyDevice(
-        device,
+        device_,
         nullptr);
     vkDestroySurfaceKHR(
-        instance,
+        instance_,
         surface,
         nullptr);
     vkDestroyDebugUtilsMessengerEXT(
-        instance,
-        debugMessenger,
+        instance_,
+        debug_messenger_,
         nullptr);
     vkDestroyInstance(
-        instance,
+        instance_,
         nullptr);
 
     SDL_DestroyWindow(
@@ -553,32 +554,20 @@ void Renderer::InitInstance()
     const char *requestedLayers[] = {"VK_LAYER_KHRONOS_validation"};
 
     // @todo:	calculate the extension count from the array.
-    const char *requestedExtensions[] = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-                                         VK_KHR_SURFACE_EXTENSION_NAME,
-                                         VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
+    const char *requestedExtensions[] = {
+        VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+        VK_KHR_SURFACE_EXTENSION_NAME,
+        VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
 
-    VkApplicationInfo applicationInfo = {};
-    applicationInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    applicationInfo.pApplicationName = "Adro";
-    applicationInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    applicationInfo.apiVersion = VK_MAKE_VERSION(1, 0, 0);
+    instance_ = CreateInstance(requestedLayers, requestedExtensions).value();
 
-    VkInstanceCreateInfo instanceCreateInfo = {};
-    instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instanceCreateInfo.pNext = &DEBUG_UTILS_MESSENGER_CREATE_INFO;
-    // @TODO: turn it on only if needed (debug build).
-    instanceCreateInfo.pApplicationInfo = &applicationInfo;
-    instanceCreateInfo.enabledLayerCount = std::size(requestedLayers);
-    instanceCreateInfo.ppEnabledLayerNames = &requestedLayers[0];
-    instanceCreateInfo.enabledExtensionCount = std::size(requestedExtensions);
-    instanceCreateInfo.ppEnabledExtensionNames = &requestedExtensions[0];
+    volkLoadInstance(instance_);
 
-    VK_CHECK(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
-
-    volkLoadInstance(instance);
-
-    vkCreateDebugUtilsMessengerEXT(instance, &DEBUG_UTILS_MESSENGER_CREATE_INFO,
-        nullptr, &debugMessenger);
+    vkCreateDebugUtilsMessengerEXT(
+        instance_,
+        &DEBUG_UTILS_MESSENGER_CREATE_INFO,
+        nullptr,
+        &debug_messenger_);
 }
 
 void Renderer::InitSurface()
@@ -587,7 +576,7 @@ void Renderer::InitSurface()
     VK_CHECK(
         SDL_Vulkan_CreateSurface(
             window,
-            instance,
+            instance_,
             &surface)
         ? VK_SUCCESS
         : VK_ERROR_INITIALIZATION_FAILED);
@@ -595,48 +584,35 @@ void Renderer::InitSurface()
 
 void Renderer::InitDevice()
 {
-    VkPhysicalDeviceFeatures gpuRequiredFeatures = {};
-    gpuRequiredFeatures.geometryShader = VK_TRUE;
-    gpuRequiredFeatures.tessellationShader = VK_TRUE;
-    gpuRequiredFeatures.multiDrawIndirect = VK_TRUE;
-    gpuRequiredFeatures.fillModeNonSolid = VK_TRUE;
-    gpuRequiredFeatures.sampleRateShading = VK_TRUE;
-    gpuRequiredFeatures.samplerAnisotropy = VK_TRUE;
+    VkPhysicalDeviceFeatures required_features = {};
+    required_features.geometryShader = VK_TRUE;
+    required_features.tessellationShader = VK_TRUE;
+    required_features.multiDrawIndirect = VK_TRUE;
+    required_features.fillModeNonSolid = VK_TRUE;
+    required_features.sampleRateShading = VK_TRUE;
+    required_features.samplerAnisotropy = VK_TRUE;
 
-    // @todo:	calculate the device extension count from the array.
-    const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    const char *device_extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    gpu = CreatePhysicalDevice(instance_, device_extensions, required_features).value();
 
-    QueryGpu(instance, gpuRequiredFeatures, std::size(deviceExtensions),
-        deviceExtensions, &gpu);
+    uint32_t queue_family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        gpu,
+        &queue_family_count,
+        nullptr);    // pQueueFamilyProperties;
 
-    QueryQueueFamily(gpu, VK_QUEUE_GRAPHICS_BIT, true, 0, nullptr,
-        &queueFamilyIndex);
+    std::vector<VkQueueFamilyProperties> queue_family_properties(queue_family_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        gpu,
+        &queue_family_count,
+        queue_family_properties.data());
 
-    constexpr float QUEUE_PRIORITIES = 1.0f;
+    device_ = CreateDevice(gpu, device_extensions, required_features).value();
 
-    VkDeviceQueueCreateInfo queueCreateInfo = {};
-    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.flags = 0;
-    queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
-    queueCreateInfo.queueCount = 1;
-    queueCreateInfo.pQueuePriorities = &QUEUE_PRIORITIES;
+    volkLoadDevice(device_);
 
-    constexpr uint32_t QUEUE_FAMILY_COUNT = 1;
-
-    VkDeviceCreateInfo deviceCreateInfo = {};
-    deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    deviceCreateInfo.flags = 0;
-    deviceCreateInfo.queueCreateInfoCount = QUEUE_FAMILY_COUNT;
-    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-    deviceCreateInfo.enabledExtensionCount = std::size(deviceExtensions);
-    deviceCreateInfo.ppEnabledExtensionNames = &deviceExtensions[0];
-    deviceCreateInfo.pEnabledFeatures = &gpuRequiredFeatures;
-
-    VK_CHECK(vkCreateDevice(gpu, &deviceCreateInfo, nullptr, &device));
-
-    volkLoadDevice(device);
-
-    vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
+    present_queue_family_index_ = GetPresentQueueIndex(gpu, surface, queue_family_properties).value();
+    vkGetDeviceQueue(device_, present_queue_family_index_, 0, &present_queue_);
 }
 
 void Renderer::InitSwapchain()
@@ -658,7 +634,7 @@ void Renderer::InitSwapchain()
         &surfaceCapabilities);
 
     vk_create_swapchain(
-        device,
+        device_,
         surface,
         &surfaceFormat,
         &surfaceCapabilities,
@@ -673,7 +649,7 @@ void Renderer::InitSwapchain()
     presentationFrames.renderFinishedSemaphore = new VkSemaphore[surfaceCapabilities.minImageCount];
 
     vk_query_swapchain_images(
-        device,
+        device_,
         swapchain,
         &presentationFrames.image[0]);
 
@@ -681,7 +657,7 @@ void Renderer::InitSwapchain()
     for (uint32_t i = 0; i < surfaceCapabilities.minImageCount; i++)
     {
         vk_create_image_view(
-            device,
+            device_,
             presentationFrames.image[i],
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_IMAGE_VIEW_TYPE_2D,
@@ -704,7 +680,7 @@ void Renderer::InitSwapchain()
 
         VK_CHECK(
             vkCreateSemaphore(
-                device,
+                device_,
                 &semaphoreCreateInfo,
                 nullptr,
                 &presentationFrames.renderFinishedSemaphore[i]));
@@ -719,7 +695,7 @@ void Renderer::InitOtherImages()
         &sampleCounts);
 
     vk_create_image(
-        device,
+        device_,
         gpu,
         VK_IMAGE_TYPE_2D,
         surfaceFormat.format,
@@ -737,7 +713,7 @@ void Renderer::InitOtherImages()
         &framebufferSampleImageMemory);
 
     vk_create_image_view(
-        device,
+        device_,
         framebufferSampleImage,
         VK_IMAGE_ASPECT_COLOR_BIT,
         VK_IMAGE_VIEW_TYPE_2D,
@@ -769,7 +745,7 @@ void Renderer::InitOtherImages()
         &depthStencilFormat);
 
     vk_create_image(
-        device,
+        device_,
         gpu,
         VK_IMAGE_TYPE_2D,
         depthStencilFormat,
@@ -783,7 +759,7 @@ void Renderer::InitOtherImages()
         &depthStencilMemory);
 
     vk_create_image_view(
-        device,
+        device_,
         depthStencilImage,
         VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
         VK_IMAGE_VIEW_TYPE_2D,
@@ -804,13 +780,13 @@ void Renderer::InitCommand()
     commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
                                   VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    commandPoolCreateInfo.queueFamilyIndex = queueFamilyIndex;
+    commandPoolCreateInfo.queueFamilyIndex = present_queue_family_index_;
 
     for (size_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++)
     {
         VkCommandPool &fifCommandPool = framesInFlight.commandPool[i];
 
-        VK_CHECK(vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr,
+        VK_CHECK(vkCreateCommandPool(device_, &commandPoolCreateInfo, nullptr,
             &fifCommandPool));
 
         VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
@@ -819,21 +795,21 @@ void Renderer::InitCommand()
         commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         commandBufferAllocateInfo.commandBufferCount = 1;
 
-        VK_CHECK(vkAllocateCommandBuffers(device, &commandBufferAllocateInfo,
+        VK_CHECK(vkAllocateCommandBuffers(device_, &commandBufferAllocateInfo,
             &framesInFlight.commandBuffer[i]));
 
         VkSemaphoreCreateInfo semaphoreCreateInfo = {};
         semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         semaphoreCreateInfo.flags = 0;
 
-        VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr,
+        VK_CHECK(vkCreateSemaphore(device_, &semaphoreCreateInfo, nullptr,
             &framesInFlight.acquiredImageSemaphore[i]));
 
         VkFenceCreateInfo fenceCreateInfo = {};
         fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        VK_CHECK(vkCreateFence(device, &fenceCreateInfo, nullptr,
+        VK_CHECK(vkCreateFence(device_, &fenceCreateInfo, nullptr,
             &framesInFlight.submitFence[i]));
     }
 }
@@ -871,7 +847,7 @@ void Renderer::InitBatch()
     vertexBufferSize = colorOffset + colorSize;
 
     // Create the staging buffer
-    vk_create_buffer(device,
+    vk_create_buffer(device_,
         gpu,
         vertexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -881,7 +857,7 @@ void Renderer::InitBatch()
         &stageVertexMemory);
 
     // Create the device local buffer
-    vk_create_buffer(device,
+    vk_create_buffer(device_,
         gpu,
         vertexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -893,7 +869,7 @@ void Renderer::InitBatch()
     void *data = {};
 
     // Map the entire buffer's memory range.
-    vkMapMemory(device, stageVertexMemory, 0, vertexBufferSize, 0, &data);
+    vkMapMemory(device_, stageVertexMemory, 0, vertexBufferSize, 0, &data);
 
     // Copy each data set to its calculated offset
     char *basePtr = static_cast<char *>(data);
@@ -902,12 +878,12 @@ void Renderer::InitBatch()
     memcpy(basePtr + colorOffset, batchData.color.data(), colorSize);
 
     // Unmap the memory
-    vkUnmapMemory(device, stageVertexMemory);
+    vkUnmapMemory(device_, stageVertexMemory);
 
     const size_t actualIndexBufferSize = sizeof(uint32_t) * batchData.indices.size();
     const size_t indexBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
         static_cast<float>(actualIndexBufferSize)));
-    vk_create_buffer(device, gpu, indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+    vk_create_buffer(device_, gpu, indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
         nullptr,
         &batch.indexBuffer, &batch.indexMem);
@@ -915,7 +891,7 @@ void Renderer::InitBatch()
     void *index_data = nullptr;
     VK_CHECK(
         vkMapMemory(
-            device,
+            device_,
             batch.indexMem,
             0,
             indexBufferSize,
@@ -928,7 +904,7 @@ void Renderer::InitBatch()
         sizeof(uint32_t) * batchData.indices.size());
 
     vkUnmapMemory(
-        device,
+        device_,
         batch.indexMem);
 }
 
@@ -956,7 +932,7 @@ void Renderer::InitFramebuffers() const
 
         VK_CHECK(
             vkCreateFramebuffer(
-                device,
+                device_,
                 &framebufferInfo,
                 nullptr,
                 &presentationFrames.framebuffer[i]));
@@ -1060,7 +1036,7 @@ void Renderer::InitRenderpass()
     renderPassCreateInfo.dependencyCount = 1;
     renderPassCreateInfo.pDependencies = &dependency;
 
-    VK_CHECK(vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &renderPass));
+    VK_CHECK(vkCreateRenderPass(device_, &renderPassCreateInfo, nullptr, &renderPass));
 }
 
 void Renderer::InitUniformBuffer()
@@ -1069,7 +1045,7 @@ void Renderer::InitUniformBuffer()
     {
         constexpr VkDeviceSize bufferSize = sizeof(PerFrameDataCpu);
 
-        vk_create_buffer(device, gpu, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        vk_create_buffer(device_, gpu, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, nullptr,
             &uniformBufferFrames.buffers[i], &uniformBufferFrames.memory[i]);
     }
@@ -1092,7 +1068,7 @@ void Renderer::InitPipeline()
 
     VK_CHECK(
         vkCreateShaderModule(
-            device,
+            device_,
             &vertModuleInfo,
             nullptr,
             &shaderModules[0]));
@@ -1103,7 +1079,7 @@ void Renderer::InitPipeline()
     fragModuleInfo.codeSize = static_cast<uint32_t>(fragShaderCode.size());
     fragModuleInfo.pCode = reinterpret_cast<const uint32_t *>(fragShaderCode.data());
 
-    VK_CHECK(vkCreateShaderModule(device, &fragModuleInfo, nullptr, &shaderModules[1]));
+    VK_CHECK(vkCreateShaderModule(device_, &fragModuleInfo, nullptr, &shaderModules[1]));
 
     VkPipelineShaderStageCreateInfo vertStageInfo = {};
     vertStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1282,7 +1258,7 @@ void Renderer::InitPipeline()
     layoutInfo.bindingCount = 1;
     layoutInfo.pBindings = &uniformBufferSetBinding;
 
-    VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
+    VK_CHECK(vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr,
         &descriptorSetLayout));
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
@@ -1293,7 +1269,7 @@ void Renderer::InitPipeline()
     pipelineLayoutInfo.pushConstantRangeCount = 0;
     pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
-    VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr,
+    VK_CHECK(vkCreatePipelineLayout(device_, &pipelineLayoutInfo, nullptr,
         &pipelineLayout));
 
     // depth + stencil
@@ -1370,7 +1346,7 @@ void Renderer::InitPipeline()
 
     VkPipeline pipelines[] = {pipeline, pipelineWireframe};
 
-    VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 2, &pipeline_infos[0],
+    VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 2, &pipeline_infos[0],
         nullptr, &pipelines[0]));
 
     pipeline = pipelines[0];
@@ -1386,7 +1362,7 @@ void Renderer::InitPipeline()
     poolCreateInfo.poolSizeCount = 1;
     poolCreateInfo.pPoolSizes = &poolSize;
 
-    VK_CHECK(vkCreateDescriptorPool(device, &poolCreateInfo, nullptr,
+    VK_CHECK(vkCreateDescriptorPool(device_, &poolCreateInfo, nullptr,
         &descriptorPool));
 
     std::vector<VkDescriptorSetLayout> layouts(FramesInFlightType::MAX_FIF_COUNT,
@@ -1398,7 +1374,7 @@ void Renderer::InitPipeline()
     setAllocateInfo.descriptorSetCount = FramesInFlightType::MAX_FIF_COUNT;
     setAllocateInfo.pSetLayouts = &layouts[0];
 
-    VK_CHECK(vkAllocateDescriptorSets(device, &setAllocateInfo,
+    VK_CHECK(vkAllocateDescriptorSets(device_, &setAllocateInfo,
         &uniformBufferFrames.descriptorSets[0]));
 
     for (size_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++)
@@ -1417,11 +1393,11 @@ void Renderer::InitPipeline()
         descriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         descriptorSet.pBufferInfo = &bufferInfo;
 
-        vkUpdateDescriptorSets(device, 1, &descriptorSet, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 1, &descriptorSet, 0, nullptr);
     }
 
-    vkDestroyShaderModule(device, shaderModules[0], nullptr);
-    vkDestroyShaderModule(device, shaderModules[1], nullptr);
+    vkDestroyShaderModule(device_, shaderModules[0], nullptr);
+    vkDestroyShaderModule(device_, shaderModules[1], nullptr);
 }
 
 void Renderer::PrepareDepthStencil()
@@ -1457,7 +1433,7 @@ void Renderer::PrepareDepthStencil()
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &framesInFlight.commandBuffer[0];
 
-    vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(queue);
+    vkQueueSubmit(present_queue_, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(present_queue_);
 }
 } // Renderer
