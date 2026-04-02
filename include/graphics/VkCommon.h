@@ -13,26 +13,11 @@ namespace Renderer
 /// Wrap most common vulkan calls (e.g. VkCreateInstance, VkCreateBuffer, VkCreateImage, ...).
 /// To delete vulkan resources, you must do the normal vulkan calls (e.g. vkDestroyInstance, ...).
 
-// @TODO: I would like something that can report the error. How should it be done?
-// #define VK_CHECK(result)					\
-// 	do {                                    \
-// 		VkResult _vk_result = (result);     \
-// 		assert(_vk_result == VK_SUCCESS);	\
-// 	} while (0)
-
-
 // ==========================
 // Physical Device
 // ==========================
 
 #pragma region VkPhysicalDevice
-void QueryGpu(
-    VkInstance instance,
-    VkPhysicalDeviceFeatures fts_requested,
-    uint32_t requested_extension_count,
-    const char **p_requested_extensions,
-    VkPhysicalDevice *p_gpu);
-
 void vk_query_sample_counts(
     VkPhysicalDevice gpu,
     VkSampleCountFlagBits *p_sample);
@@ -74,23 +59,6 @@ uint32_t vk_query_memory_type_idx(
     uint32_t type_filter,
     VkMemoryPropertyFlags memory_property_flags,
     const VkPhysicalDeviceMemoryProperties &physical_device_memory_properties);
-#pragma endregion
-
-
-// ==========================
-// Device
-// ==========================
-
-#pragma region VkDevice
-void vk_create_device(
-    VkPhysicalDevice gpu,
-    uint32_t queue_family_count,
-    const uint32_t *p_queue_families_idx,
-    uint32_t requested_extension_count,
-    const char **p_requested_extensions,
-    const VkPhysicalDeviceFeatures *p_features,
-    const VkAllocationCallbacks *p_allocator,
-    VkDevice *p_device);
 #pragma endregion
 
 

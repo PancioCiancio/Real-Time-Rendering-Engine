@@ -4,7 +4,11 @@ add_library(graphics STATIC
         "VkCommon.cpp"
         "MeshLoader.cpp"
         "Renderer.cpp"
-        vk_utils.cpp)
+        vk_instance_utils.cpp
+        vk_physical_device_utils.cpp
+        vk_device_utils.cpp
+        vk_queue_utils.cpp
+        vk_swapchain_utils.cpp)
 
 target_include_directories(graphics
         PUBLIC

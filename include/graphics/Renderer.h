@@ -105,22 +105,22 @@ struct PresentationFrameType
     /**
      *
      */
-    VkImage *image = {};
+    std::vector<VkImage> image = {};
 
     /**
      *
      */
-    VkImageView *imageView = {};
+    std::vector<VkImageView> imageView = {};
 
     /**
      *
      */
-    VkFramebuffer *framebuffer = {};
+    std::vector<VkFramebuffer> framebuffer = {};
 
     /**
      *
      */
-    VkSemaphore *renderFinishedSemaphore = {};
+    std::vector<VkSemaphore> renderFinishedSemaphore = {};
 };
 
 class Renderer
@@ -151,7 +151,7 @@ private:
 
     void InitBatch();
 
-    void InitFramebuffers() const;
+    void InitFramebuffers();
 
     void InitRenderpass();
 
@@ -175,7 +175,7 @@ private:
     /**
      *
      */
-    VkPhysicalDevice gpu = {};
+    VkPhysicalDevice physical_device_ = {};
 
     /**
      *
@@ -220,12 +220,12 @@ private:
     /**
      *
      */
-    VkSurfaceKHR surface = {};
+    VkSurfaceKHR surface_ = {};
 
     /**
      *
      */
-    VkSwapchainKHR swapchain = {};
+    VkSwapchainKHR swapchain_ = {};
 
     /**
      *
