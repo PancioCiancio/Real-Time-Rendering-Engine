@@ -133,6 +133,7 @@ void Renderer::Update(double delta_time)
 
     uint32_t fifIndex = 0u;
 
+    // @todo move outside
     glm::vec3 cameraPos = {0.0f, .0f, -100.0f};
     glm::vec3 cameraPosNew = {0.0f, .0f, -100.0f};
     glm::vec3 cameraFront = {0.0f, 0.0f, 1.0f};
@@ -497,15 +498,15 @@ void Renderer::Teardown() const
     // Depth stencil
     vkDestroyImageView(
         device_,
-        depthStencilImageView,
+        depth_stencil_image_view_,
         nullptr);
     vkDestroyImage(
         device_,
-        depthStencilImage,
+        depth_stencil_image_,
         nullptr);
     vkFreeMemory(
         device_,
-        depthStencilMemory,
+        depth_stencil_memory_,
         nullptr);
 
     for (uint32_t i = 0; i < image_count_; i++)
@@ -709,10 +710,9 @@ void Renderer::InitSwapchain()
 
 void Renderer::InitOtherImages()
 {
-    VkSampleCountFlagBits sampleCounts = VK_SAMPLE_COUNT_1_BIT;
-    vk_query_sample_counts(
-        physical_device_,
-        &sampleCounts);
+    const VkSampleCountFlagBits sample_count = std::min(
+        VK_SAMPLE_COUNT_4_BIT,                                      // Desired sample count bit
+        vk_utils::FindMaxSampleCount(physical_device_).value());    // Supported sample count bit
 
     vk_utils::ImageResult sample_image_result = vk_utils::CreateImage(
         device_,
@@ -724,7 +724,7 @@ void Renderer::InitOtherImages()
             extent_.height,
             1
         },
-        sampleCounts,
+        sample_count,
         VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT).value();
@@ -747,7 +747,7 @@ void Renderer::InitOtherImages()
 
     // Depth + Stencil
 
-    constexpr VkFormat depthStencilFormatsRequested[] = {
+    constexpr VkFormat depth_stencil_requested_formats[] = {
         VK_FORMAT_D32_SFLOAT_S8_UINT,
         VK_FORMAT_D24_UNORM_S8_UINT,
         VK_FORMAT_D24_UNORM_S8_UINT,
@@ -757,7 +757,7 @@ void Renderer::InitOtherImages()
     vk_query_supported_format(
         physical_device_,
         4,
-        &depthStencilFormatsRequested[0],
+        &depth_stencil_requested_formats[0],
         VK_IMAGE_TILING_OPTIMAL,
         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT,
         &depthStencilFormat);
@@ -768,17 +768,17 @@ void Renderer::InitOtherImages()
         VK_IMAGE_TYPE_2D,
         depthStencilFormat,
         {extent_.width, extent_.height, 1},
-        sampleCounts,
+        sample_count,
         VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT).value();
 
-    depthStencilImage = depth_stencil_image_result.image;
-    depthStencilMemory = depth_stencil_image_result.memory;
+    depth_stencil_image_ = depth_stencil_image_result.image;
+    depth_stencil_memory_ = depth_stencil_image_result.memory;
 
-     depthStencilImageView = vk_utils::CreateImageView(
+    depth_stencil_image_view_ = vk_utils::CreateImageView(
         device_,
-        depthStencilImage,
+        depth_stencil_image_,
         VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
         VK_IMAGE_VIEW_TYPE_2D,
         depthStencilFormat,
@@ -792,40 +792,51 @@ void Renderer::InitOtherImages()
 
 void Renderer::InitCommand()
 {
-    VkCommandPoolCreateInfo commandPoolCreateInfo = {};
-    commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
+    VkCommandPoolCreateInfo cmd_pool_create_info = {};
+    cmd_pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    cmd_pool_create_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
                                   VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    commandPoolCreateInfo.queueFamilyIndex = present_queue_family_index_;
+    cmd_pool_create_info.queueFamilyIndex = present_queue_family_index_;
 
     for (size_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++)
     {
         VkCommandPool &fifCommandPool = framesInFlight.commandPool[i];
 
-        vk_utils::VK_CHECK(vkCreateCommandPool(device_, &commandPoolCreateInfo, nullptr,
+        vk_utils::VK_CHECK(vkCreateCommandPool(
+            device_,
+            &cmd_pool_create_info,
+            nullptr,
             &fifCommandPool));
 
-        VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
-        commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        commandBufferAllocateInfo.commandPool = fifCommandPool;
-        commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        commandBufferAllocateInfo.commandBufferCount = 1;
+        VkCommandBufferAllocateInfo cmd_buffer_allocation_info = {};
+        cmd_buffer_allocation_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        cmd_buffer_allocation_info.commandPool = fifCommandPool;
+        cmd_buffer_allocation_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cmd_buffer_allocation_info.commandBufferCount = 1;
 
-        vk_utils::VK_CHECK(vkAllocateCommandBuffers(device_, &commandBufferAllocateInfo,
+        vk_utils::VK_CHECK(vkAllocateCommandBuffers(
+            device_,
+            &cmd_buffer_allocation_info,
             &framesInFlight.commandBuffer[i]));
 
-        VkSemaphoreCreateInfo semaphoreCreateInfo = {};
-        semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-        semaphoreCreateInfo.flags = 0;
+        VkSemaphoreCreateInfo semaphore_create_info = {};
+        semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        semaphore_create_info.flags = 0;
 
-        vk_utils::VK_CHECK(vkCreateSemaphore(device_, &semaphoreCreateInfo, nullptr,
+        vk_utils::VK_CHECK(vkCreateSemaphore(
+            device_,
+            &semaphore_create_info,
+            nullptr,
             &framesInFlight.acquiredImageSemaphore[i]));
 
-        VkFenceCreateInfo fenceCreateInfo = {};
-        fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        VkFenceCreateInfo fence_create_info = {};
+        fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        vk_utils::VK_CHECK(vkCreateFence(device_, &fenceCreateInfo, nullptr,
+        vk_utils::VK_CHECK(vkCreateFence(
+            device_,
+            &fence_create_info,
+            nullptr,
             &framesInFlight.submitFence[i]));
     }
 }
@@ -839,6 +850,7 @@ void Renderer::InitBatch()
     const VkDeviceSize minAlignment = physicalDeviceProperties.limits.minMemoryMapAlignment;
 
     // Load the mesh.
+    // @todo move outside
     MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
 
     // Update the global indices count.
@@ -863,24 +875,25 @@ void Renderer::InitBatch()
     vertexBufferSize = colorOffset + colorSize;
 
     // Create the staging buffer
-    vk_create_buffer(device_,
+    vk_utils::BufferResult stage_buffer_result = vk_utils::CreateBuffer(
+        device_,
         physical_device_,
         vertexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        nullptr,
-        &stageVertexBuffer,
-        &stageVertexMemory);
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT).value();
+
+    stageVertexBuffer = stage_buffer_result.buffer;
+    stageVertexMemory = stage_buffer_result.memory;
 
     // Create the device local buffer
-    vk_create_buffer(device_,
+    vk_utils::BufferResult buffer_result = vk_utils::CreateBuffer(device_,
         physical_device_,
         vertexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        nullptr,
-        &vertexBuffer,
-        &vertexMemory);
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT).value();
+
+    vertexBuffer = buffer_result.buffer;
+    vertexMemory = buffer_result.memory;
 
     void *data = {};
 
@@ -899,10 +912,15 @@ void Renderer::InitBatch()
     const size_t actualIndexBufferSize = sizeof(uint32_t) * batchData.indices.size();
     const size_t indexBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
         static_cast<float>(actualIndexBufferSize)));
-    vk_create_buffer(device_, physical_device_, indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        nullptr,
-        &batch.indexBuffer, &batch.indexMem);
+    vk_utils::BufferResult batch_buffer_result = vk_utils::CreateBuffer(
+        device_,
+        physical_device_,
+        indexBufferSize,
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT).value();
+
+    batch.indexBuffer = batch_buffer_result.buffer;
+    batch.indexMem = batch_buffer_result.memory;
 
     void *index_data = nullptr;
     vk_utils::VK_CHECK(
@@ -930,7 +948,7 @@ void Renderer::InitFramebuffers()
     {
         const VkImageView attachments[3] = {
             framebufferSampleImageView, // Multisample
-            depthStencilImageView,
+            depth_stencil_image_view_,
             presentationFrames.imageView[i], // Multisample resolver to 1 sample.
         };
 
@@ -959,10 +977,9 @@ void Renderer::InitFramebuffers()
 
 void Renderer::InitRenderpass()
 {
-    VkSampleCountFlagBits sample_counts = VK_SAMPLE_COUNT_1_BIT;
-    vk_query_sample_counts(
-        physical_device_,
-        &sample_counts);
+    const VkSampleCountFlagBits sample_counts = std::min(
+        VK_SAMPLE_COUNT_4_BIT,                                      // Desired sample count bit
+        vk_utils::FindMaxSampleCount(physical_device_).value());    // Supported sample count bit
 
     VkAttachmentDescription color_attachment = {};
     color_attachment.flags = 0;
@@ -1063,9 +1080,15 @@ void Renderer::InitUniformBuffer()
     {
         constexpr VkDeviceSize bufferSize = sizeof(PerFrameDataCpu);
 
-        vk_create_buffer(device_, physical_device_, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, nullptr,
-            &uniformBufferFrames.buffers[i], &uniformBufferFrames.memory[i]);
+        const vk_utils::BufferResult buffer_result = vk_utils::CreateBuffer(
+            device_,
+            physical_device_,
+            bufferSize,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT).value();
+
+        uniformBufferFrames.buffers[i] = buffer_result.buffer;
+        uniformBufferFrames.memory[i] = buffer_result.memory;
     }
 }
 
@@ -1228,13 +1251,14 @@ void Renderer::InitPipeline()
     rasterizationInfo.depthBiasSlopeFactor = 0.0f;
     rasterizationInfo.lineWidth = 1.0f;
 
-    VkSampleCountFlagBits sampleCounts = VK_SAMPLE_COUNT_1_BIT;
-    vk_query_sample_counts(physical_device_, &sampleCounts);
+    const VkSampleCountFlagBits sample_count = std::min(
+        VK_SAMPLE_COUNT_4_BIT,                                      // Desired sample count bit
+        vk_utils::FindMaxSampleCount(physical_device_).value());    // Supported sample count bit
 
     VkPipelineMultisampleStateCreateInfo multisampleInfo = {};
     multisampleInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampleInfo.flags = 0;
-    multisampleInfo.rasterizationSamples = sampleCounts;
+    multisampleInfo.rasterizationSamples = sample_count;
     multisampleInfo.sampleShadingEnable = VK_TRUE;
     multisampleInfo.minSampleShading = 1.0f;
     multisampleInfo.pSampleMask = nullptr;
@@ -1279,65 +1303,77 @@ void Renderer::InitPipeline()
     vk_utils::VK_CHECK(vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr,
         &descriptorSetLayout));
 
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
-    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.flags = 0;
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
-    pipelineLayoutInfo.pPushConstantRanges = nullptr;
+    VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
+    pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_create_info.flags = 0;
+    pipeline_layout_create_info.setLayoutCount = 1;
+    pipeline_layout_create_info.pSetLayouts = &descriptorSetLayout;
+    pipeline_layout_create_info.pushConstantRangeCount = 0;
+    pipeline_layout_create_info.pPushConstantRanges = nullptr;
 
-    vk_utils::VK_CHECK(vkCreatePipelineLayout(device_, &pipelineLayoutInfo, nullptr,
+    vk_utils::VK_CHECK(vkCreatePipelineLayout(
+        device_,
+        &pipeline_layout_create_info,
+        nullptr,
         &pipelineLayout));
 
+    VkStencilOpState stencil_op = {};
+    stencil_op.failOp = VK_STENCIL_OP_KEEP;       // What to do if stencil test fails
+    stencil_op.passOp = VK_STENCIL_OP_REPLACE;    // What to do if stencil & depth pass
+    stencil_op.depthFailOp = VK_STENCIL_OP_KEEP;  // What to do if stencil passes but depth fails
+    stencil_op.compareOp = VK_COMPARE_OP_ALWAYS;  // The condition to pass
+    stencil_op.compareMask = 0xFF;
+    stencil_op.writeMask = 0xFF;
+    stencil_op.reference = 1;                     // The value to write/compare against
+
     // depth + stencil
-    VkPipelineDepthStencilStateCreateInfo depthStencilStateCreateInfo = {};
-    depthStencilStateCreateInfo.sType =
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_state_create_info = {};
+    depth_stencil_state_create_info.sType =
         VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencilStateCreateInfo.depthTestEnable = VK_TRUE;
-    depthStencilStateCreateInfo.depthWriteEnable = VK_TRUE;
-    depthStencilStateCreateInfo.depthCompareOp = VK_COMPARE_OP_LESS;
-    depthStencilStateCreateInfo.depthBoundsTestEnable = VK_FALSE;
-    depthStencilStateCreateInfo.stencilTestEnable = VK_FALSE;
-    depthStencilStateCreateInfo.front = {};
-    depthStencilStateCreateInfo.back = {};
-    depthStencilStateCreateInfo.minDepthBounds = 0.0f;
-    depthStencilStateCreateInfo.maxDepthBounds = 1.0f;
+    depth_stencil_state_create_info.depthTestEnable = VK_TRUE;
+    depth_stencil_state_create_info.depthWriteEnable = VK_TRUE;
+    depth_stencil_state_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
+    depth_stencil_state_create_info.depthBoundsTestEnable = VK_FALSE;
+    depth_stencil_state_create_info.stencilTestEnable = VK_TRUE;
+    depth_stencil_state_create_info.front = stencil_op;
+    depth_stencil_state_create_info.back = stencil_op;
+    depth_stencil_state_create_info.minDepthBounds = 0.0f;
+    depth_stencil_state_create_info.maxDepthBounds = 1.0f;
 
-    VkGraphicsPipelineCreateInfo pipelineInfo = {};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.flags = 0;
-    pipelineInfo.stageCount = 2;
-    pipelineInfo.pStages = shaderStages;
-    pipelineInfo.pVertexInputState = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
-    pipelineInfo.pTessellationState = nullptr;
-    pipelineInfo.pViewportState = &viewportInfo;
-    pipelineInfo.pRasterizationState = &rasterizationInfo;
-    pipelineInfo.pMultisampleState = &multisampleInfo;
-    pipelineInfo.pDepthStencilState = &depthStencilStateCreateInfo;
-    pipelineInfo.pColorBlendState = &colorBlendInfo;
-    pipelineInfo.pDynamicState = &dynamicStateCreateInfo;
-    pipelineInfo.layout = pipelineLayout;
-    pipelineInfo.renderPass = renderPass;
-    pipelineInfo.subpass = 0;
-    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-    pipelineInfo.basePipelineIndex = -1;
+    VkGraphicsPipelineCreateInfo graphisc_pipeline_create_info = {};
+    graphisc_pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    graphisc_pipeline_create_info.flags = 0;
+    graphisc_pipeline_create_info.stageCount = 2;
+    graphisc_pipeline_create_info.pStages = shaderStages;
+    graphisc_pipeline_create_info.pVertexInputState = &vertexInputInfo;
+    graphisc_pipeline_create_info.pInputAssemblyState = &inputAssemblyInfo;
+    graphisc_pipeline_create_info.pTessellationState = nullptr;
+    graphisc_pipeline_create_info.pViewportState = &viewportInfo;
+    graphisc_pipeline_create_info.pRasterizationState = &rasterizationInfo;
+    graphisc_pipeline_create_info.pMultisampleState = &multisampleInfo;
+    graphisc_pipeline_create_info.pDepthStencilState = &depth_stencil_state_create_info;
+    graphisc_pipeline_create_info.pColorBlendState = &colorBlendInfo;
+    graphisc_pipeline_create_info.pDynamicState = &dynamicStateCreateInfo;
+    graphisc_pipeline_create_info.layout = pipelineLayout;
+    graphisc_pipeline_create_info.renderPass = renderPass;
+    graphisc_pipeline_create_info.subpass = 0;
+    graphisc_pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+    graphisc_pipeline_create_info.basePipelineIndex = -1;
 
-    VkPipelineRasterizationStateCreateInfo rasterizationInfoWireframe = {};
-    rasterizationInfoWireframe.sType =
+    VkPipelineRasterizationStateCreateInfo pipeline_wireframe_create_info = {};
+    pipeline_wireframe_create_info.sType =
         VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizationInfoWireframe.flags = 0;
-    rasterizationInfoWireframe.depthClampEnable = VK_FALSE;
-    rasterizationInfoWireframe.rasterizerDiscardEnable = VK_FALSE;
-    rasterizationInfoWireframe.polygonMode = VK_POLYGON_MODE_LINE;
-    rasterizationInfoWireframe.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizationInfoWireframe.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizationInfoWireframe.depthBiasEnable = VK_FALSE;
-    rasterizationInfoWireframe.depthBiasConstantFactor = 0.0f;
-    rasterizationInfoWireframe.depthBiasClamp = 0.0f;
-    rasterizationInfoWireframe.depthBiasSlopeFactor = 0.0f;
-    rasterizationInfoWireframe.lineWidth = 1.0f;
+    pipeline_wireframe_create_info.flags = 0;
+    pipeline_wireframe_create_info.depthClampEnable = VK_FALSE;
+    pipeline_wireframe_create_info.rasterizerDiscardEnable = VK_FALSE;
+    pipeline_wireframe_create_info.polygonMode = VK_POLYGON_MODE_LINE;
+    pipeline_wireframe_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
+    pipeline_wireframe_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    pipeline_wireframe_create_info.depthBiasEnable = VK_FALSE;
+    pipeline_wireframe_create_info.depthBiasConstantFactor = 0.0f;
+    pipeline_wireframe_create_info.depthBiasClamp = 0.0f;
+    pipeline_wireframe_create_info.depthBiasSlopeFactor = 0.0f;
+    pipeline_wireframe_create_info.lineWidth = 1.0f;
 
     VkGraphicsPipelineCreateInfo pipelineInfoWireframe = {};
     pipelineInfoWireframe.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1348,9 +1384,9 @@ void Renderer::InitPipeline()
     pipelineInfoWireframe.pInputAssemblyState = &inputAssemblyInfo;
     pipelineInfoWireframe.pTessellationState = nullptr;
     pipelineInfoWireframe.pViewportState = &viewportInfo;
-    pipelineInfoWireframe.pRasterizationState = &rasterizationInfoWireframe;
+    pipelineInfoWireframe.pRasterizationState = &pipeline_wireframe_create_info;
     pipelineInfoWireframe.pMultisampleState = &multisampleInfo;
-    pipelineInfoWireframe.pDepthStencilState = &depthStencilStateCreateInfo;
+    pipelineInfoWireframe.pDepthStencilState = &depth_stencil_state_create_info;
     pipelineInfoWireframe.pColorBlendState = &colorBlendInfo;
     pipelineInfoWireframe.pDynamicState = &dynamicStateCreateInfo;
     pipelineInfoWireframe.layout = pipelineLayout;
@@ -1359,7 +1395,7 @@ void Renderer::InitPipeline()
     pipelineInfoWireframe.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfoWireframe.basePipelineIndex = -1;
 
-    VkGraphicsPipelineCreateInfo pipeline_infos[] = {pipelineInfo,
+    VkGraphicsPipelineCreateInfo pipeline_infos[] = {graphisc_pipeline_create_info,
                                                      pipelineInfoWireframe};
 
     VkPipeline pipelines[] = {pipeline, pipelineWireframe};
@@ -1432,7 +1468,7 @@ void Renderer::PrepareDepthStencil()
     barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    barrier.image = depthStencilImage;
+    barrier.image = depth_stencil_image_;
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.levelCount = 1;
