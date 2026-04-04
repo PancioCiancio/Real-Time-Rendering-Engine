@@ -37,10 +37,6 @@
             "toolset": {
                 "value": "host=x64",
                 "strategy": "external"
-            },
-            "cacheVariables": {
-                "ENABLE_CPPCHECK_DEFAULT": "FALSE",
-                "ENABLE_CLANG_TIDY_DEFAULT": "FALSE"
             }
         },
         {
@@ -48,6 +44,11 @@
             "displayName": "msvc Debug (Developer Mode)",
             "description": "Target Windows with the msvc compiler, debug build type",
             "inherits": "conf-windows-common",
+            "vendor": {
+                "jetbrains.com/clion": {
+                    "toolchain": "Visual Studio"
+                }
+            },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "cl",
                 "CMAKE_CXX_COMPILER": "cl",
@@ -60,6 +61,11 @@
             "displayName": "msvc Release (Developer Mode)",
             "description": "Target Windows with the msvc compiler, release build type",
             "inherits": "conf-windows-common",
+            "vendor": {
+                "jetbrains.com/clion": {
+                    "toolchain": "Visual Studio"
+                }
+            },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "cl",
                 "CMAKE_CXX_COMPILER": "cl",
@@ -72,6 +78,11 @@
             "displayName": "msvc Debug (User Mode)",
             "description": "Target Windows with the msvc compiler, debug build type",
             "inherits": "conf-windows-common",
+            "vendor": {
+                "jetbrains.com/clion": {
+                    "toolchain": "Visual Studio"
+                }
+            },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "cl",
                 "CMAKE_CXX_COMPILER": "cl",
@@ -84,6 +95,11 @@
             "displayName": "msvc Release (User Mode)",
             "description": "Target Windows with the msvc compiler, release build type",
             "inherits": "conf-windows-common",
+            "vendor": {
+                "jetbrains.com/clion": {
+                    "toolchain": "Visual Studio"
+                }
+            },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "cl",
                 "CMAKE_CXX_COMPILER": "cl",
@@ -104,8 +120,8 @@
                 "CMAKE_CXX_CLANG_TIDY": "clang-tidy"
             },
             "vendor": {
-                "microsoft.com/VisualStudioSettings/CMake/1.0": {
-                    "intelliSenseMode": "windows-clang-x64"
+                "jetbrains.com/clion": {
+                    "toolchain": "clang"
                 }
             }
         },
@@ -121,8 +137,8 @@
                 "CMAKE_CXX_FLAGS": "-Werror -Wpedantic -fdiagnostics-show-line-numbers"
             },
             "vendor": {
-                "microsoft.com/VisualStudioSettings/CMake/1.0": {
-                    "intelliSenseMode": "windows-clang-x64"
+                "jetbrains.com/clion": {
+                    "toolchain": "clang"
                 }
             }
         },
@@ -131,6 +147,11 @@
             "displayName": "GCC Debug",
             "description": "Target Windows with MSYS2 GCC, debug build type",
             "inherits": "conf-windows-common",
+            "vendor": {
+                "jetbrains.com/clion": {
+                    "toolchain": "g++"
+                }
+            },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "gcc",
                 "CMAKE_CXX_COMPILER": "g++",
@@ -143,6 +164,11 @@
             "displayName": "GCC Release",
             "description": "Target Windows with MSYS2 GCC, release build type",
             "inherits": "conf-windows-common",
+            "vendor": {
+                "jetbrains.com/clion": {
+                    "toolchain": "g++"
+                }
+            },
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "gcc",
                 "CMAKE_CXX_COMPILER": "g++",
