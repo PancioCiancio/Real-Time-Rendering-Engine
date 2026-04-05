@@ -1,6 +1,10 @@
+// Orda - Proprietary
 //
-// Created by apant on 02/04/2026.
+// Copyright (c) 2026 apant. All rights reserved.
 //
+// This file is part of Orda. Unauthorized copying. distribution,
+// or modification of this file, via any medium, is strictly prohibited.
+
 
 #include "vk_physical_device_utils.h"
 
@@ -158,5 +162,30 @@ std::expected<VkSampleCountFlagBits, VkResult> FindMaxSampleCount(
     return std::unexpected(VK_ERROR_INITIALIZATION_FAILED);;
 }
 
+std::expected<VkFormat, VkResult> FindFirstSupportedFormat(
+    VkPhysicalDevice phys_device,
+    std::span<const VkFormat> requested_formats,
+    VkImageTiling tiling,
+    VkFormatFeatureFlags features)
+{
+    for (uint32_t i = 0; i < requested_formats.size(); i++)
+    {
+        VkFormatProperties properties = {};
+        vkGetPhysicalDeviceFormatProperties(phys_device, requested_formats[i], &properties);
+
+        if (tiling == VK_IMAGE_TILING_LINEAR &&
+            (properties.linearTilingFeatures & features) == features)
+        {
+            return requested_formats[i];
+        }
+        else if (tiling == VK_IMAGE_TILING_OPTIMAL &&
+                 (properties.optimalTilingFeatures & features) == features)
+        {
+            return requested_formats[i];
+        }
+    }
+
+    return std::unexpected(VK_ERROR_FORMAT_NOT_SUPPORTED);
+}
 
 }

@@ -1,7 +1,6 @@
 find_package(Vulkan REQUIRED)
 
 add_library(graphics STATIC
-        "VkCommon.cpp"
         "MeshLoader.cpp"
         "Renderer.cpp"
         vk_instance_utils.cpp

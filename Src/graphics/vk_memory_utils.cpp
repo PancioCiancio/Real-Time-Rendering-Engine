@@ -1,6 +1,10 @@
+// Orda - Proprietary
 //
-// Created by apant on 02/04/2026.
+// Copyright (c) 2026 apant. All rights reserved.
 //
+// This file is part of Orda. Unauthorized copying. distribution,
+// or modification of this file, via any medium, is strictly prohibited.
+
 
 #include "vk_memory_utils.h"
 

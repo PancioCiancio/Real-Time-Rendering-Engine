@@ -1,6 +1,9 @@
+// Orda - Proprietary
 //
-// Created by apant on 20/07/2025.
+// Copyright (c) 2026 apant. All rights reserved.
 //
+// This file is part of Orda. Unauthorized copying. distribution,
+// or modification of this file, via any medium, is strictly prohibited.
 
 #ifndef MESH_H
 #define MESH_H

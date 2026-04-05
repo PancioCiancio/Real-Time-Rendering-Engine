@@ -1,6 +1,10 @@
+// Orda - Proprietary
 //
-// Created by apant on 02/04/2026.
+// Copyright (c) 2026 apant. All rights reserved.
 //
+// This file is part of Orda. Unauthorized copying. distribution,
+// or modification of this file, via any medium, is strictly prohibited.
+
 
 
 #ifndef ORDA_GRAPHICS_VK_PHYSICAL_DEVICE_UTILS_H
@@ -35,6 +39,12 @@ std::expected<VkPhysicalDevice, VkResult> CreatePhysicalDevice(
 std::expected<VkSampleCountFlagBits, VkResult> FindMaxSampleCount(
     VkPhysicalDevice phys_device);
 
+// Return the first supported format in the requested_formats list.
+std::expected<VkFormat, VkResult> FindFirstSupportedFormat(
+    VkPhysicalDevice phys_device,
+    std::span<const VkFormat> requested_formats,
+    VkImageTiling tiling,
+    VkFormatFeatureFlags features);
 }
 
 #endif //ORDA_GRAPHICS_VK_PHYSICAL_DEVICE_UTILS_H

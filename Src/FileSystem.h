@@ -1,6 +1,10 @@
+// Orda - Proprietary
 //
-// Created by apant on 07/07/2025.
+// Copyright (c) 2026 apant. All rights reserved.
 //
+// This file is part of Orda. Unauthorized copying. distribution,
+// or modification of this file, via any medium, is strictly prohibited.
+
 
 #ifndef FILESYSTEM_H
 #define FILESYSTEM_H

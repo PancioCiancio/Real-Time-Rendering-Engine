@@ -1,12 +1,15 @@
+// Orda - Proprietary
 //
-// Created by apant on 02/08/2025.
+// Copyright (c) 2026 apant. All rights reserved.
 //
+// This file is part of Orda. Unauthorized copying. distribution,
+// or modification of this file, via any medium, is strictly prohibited.
+
 
 #include "Renderer.h"
 
 #include "../FileSystem.h"
 #include "MeshLoader.h"
-#include "VkCommon.h"
 #include "Memory.h"
 
 #include "vk_core_utils.h"
@@ -20,12 +23,10 @@
 
 #include <SDL2/SDL_vulkan.h>
 
-#include "vk_memory_utils.h"
-
 namespace Utils
 {
 
-float ToClosestPowerOfTwo(const float x)
+double ToClosestPowerOfTwo(const double x)
 {
     return pow(2.0f, ceil(log2(x)));
 }
@@ -747,26 +748,27 @@ void Renderer::InitOtherImages()
 
     // Depth + Stencil
 
-    constexpr VkFormat depth_stencil_requested_formats[] = {
+    // Must be ordered based on preference.
+    // First one should be the one you are looking for,
+    // the other ones are fallbacks.
+    constexpr std::array<VkFormat, 4> depth_stencil_requested_formats = {
         VK_FORMAT_D32_SFLOAT_S8_UINT,
         VK_FORMAT_D24_UNORM_S8_UINT,
         VK_FORMAT_D24_UNORM_S8_UINT,
         VK_FORMAT_D16_UNORM_S8_UINT,
     };
 
-    vk_query_supported_format(
+    depth_stencil_format_ = vk_utils::FindFirstSupportedFormat(
         physical_device_,
-        4,
-        &depth_stencil_requested_formats[0],
+        depth_stencil_requested_formats,
         VK_IMAGE_TILING_OPTIMAL,
-        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT,
-        &depthStencilFormat);
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT).value();
 
     vk_utils::ImageResult depth_stencil_image_result = vk_utils::CreateImage(
         device_,
         physical_device_,
         VK_IMAGE_TYPE_2D,
-        depthStencilFormat,
+        depth_stencil_format_,
         {extent_.width, extent_.height, 1},
         sample_count,
         VK_IMAGE_TILING_OPTIMAL,
@@ -781,7 +783,7 @@ void Renderer::InitOtherImages()
         depth_stencil_image_,
         VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
         VK_IMAGE_VIEW_TYPE_2D,
-        depthStencilFormat,
+        depth_stencil_format_,
         {
             VK_COMPONENT_SWIZZLE_IDENTITY,
             VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -856,7 +858,7 @@ void Renderer::InitBatch()
     // Update the global indices count.
     INDICES_COUNT = batchData.indices.size();
 
-    // Update the colors data.
+    // Update the color data.
     std::vector<glm::vec4> defaultColors(batchData.position.size(),
         glm::vec4(.36f, .36f, .6391f, 1.0f));
     batchData.color = defaultColors;
@@ -910,8 +912,8 @@ void Renderer::InitBatch()
     vkUnmapMemory(device_, stageVertexMemory);
 
     const size_t actualIndexBufferSize = sizeof(uint32_t) * batchData.indices.size();
-    const size_t indexBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
-        static_cast<float>(actualIndexBufferSize)));
+    const auto indexBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
+        static_cast<double>(actualIndexBufferSize)));
     vk_utils::BufferResult batch_buffer_result = vk_utils::CreateBuffer(
         device_,
         physical_device_,
@@ -1014,7 +1016,7 @@ void Renderer::InitRenderpass()
     // Depth + stencil
     VkAttachmentDescription depth_attachment = {};
     depth_attachment.flags = 0;
-    depth_attachment.format = depthStencilFormat;
+    depth_attachment.format = depth_stencil_format_;
     depth_attachment.samples = sample_counts;
     depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;

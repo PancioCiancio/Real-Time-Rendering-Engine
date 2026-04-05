@@ -1,6 +1,10 @@
+// Orda - Proprietary
 //
-// Created by apant on 02/08/2025.
+// Copyright (c) 2026 apant. All rights reserved.
 //
+// This file is part of Orda. Unauthorized copying. distribution,
+// or modification of this file, via any medium, is strictly prohibited.
+
 
 #ifndef RUN_H
 #define RUN_H
@@ -205,7 +209,7 @@ private:
     /**
      *
      */
-    VkFormat depthStencilFormat = {};
+    VkFormat depth_stencil_format_ = {};
 
     SDL_Window *window = {};
     VkExtent2D extent_ = {};
