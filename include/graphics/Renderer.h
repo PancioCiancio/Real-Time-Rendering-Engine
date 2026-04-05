@@ -47,11 +47,12 @@ struct BatchGpu
     VkDeviceMemory indexMem = {};
 };
 
-/// Uniform buffer
-struct PerFrameDataCpu
+// Uniform buffer data.
+// Their alignment must be 4-bytes (4 * 4 = 16).
+struct alignas(16) PerFrameDataCpu
 {
-    alignas(16) glm::mat4 view;
-    alignas(16) glm::mat4 projection;
+    float view[16];
+    float projection[16];
 };
 
 template <size_t N>

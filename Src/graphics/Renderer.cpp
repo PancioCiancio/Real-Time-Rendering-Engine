@@ -22,6 +22,7 @@
 #include "vk_memory_utils.h"
 
 #include <SDL2/SDL_vulkan.h>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace Utils
 {
@@ -222,19 +223,28 @@ void Renderer::Update(double delta_time)
         vkResetFences(device_, 1, &framesInFlight.submitFence[fifIndex]);
         vkResetCommandPool(device_, framesInFlight.commandPool[fifIndex], 0);
 
-        PerFrameDataCpu uBuffer = {
-            glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp),
-            glm::perspectiveRH_ZO(glm::radians(45.0f),
+        // @todo this should be moved outside of the graphics library
+        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+        glm::mat4 projection = glm::perspectiveRH_ZO(glm::radians(45.0f),
                 static_cast<float>(extent_.width) /
                 static_cast<float>(extent_.height),
-                0.1f, 10000.0f),
-        };
+                0.1f, 10000.0f);
 
-        // Flip vulkan Y-axis
-        uBuffer.projection[1][1] *= -1;
+        // This is how we can convert glm values into primitives float arrays.
+        PerFrameDataCpu uBuffer = {};
+        std::memcpy(uBuffer.view, glm::value_ptr(view), sizeof(float) * 16);
+        std::memcpy(uBuffer.projection, glm::value_ptr(projection), sizeof(float) * 16);
 
-        vk_utils::VK_CHECK(vkMapMemory(device_, uniformBufferFrames.memory[fifIndex], 0,
-            sizeof(uBuffer), 0, &uniformBufferFrames.data_mapped[fifIndex]));
+        // Flip Vulkan Y-axis on flat float[16], column-major: index = col*4 + row
+        uBuffer.projection[5] *= -1;
+
+        vk_utils::VK_CHECK(vkMapMemory(
+            device_,
+            uniformBufferFrames.memory[fifIndex],
+            0,
+            sizeof(uBuffer),
+            0,
+            &uniformBufferFrames.data_mapped[fifIndex]));
 
         constexpr size_t uBufferSize = sizeof(PerFrameDataCpu);
 
