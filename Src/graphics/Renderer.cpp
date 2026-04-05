@@ -365,8 +365,18 @@ void Renderer::Update(double delta_time)
         vkCmdBindIndexBuffer(framesInFlight.commandBuffer[fifIndex],
             batch.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-        vkCmdDrawIndexed(framesInFlight.commandBuffer[fifIndex], INDICES_COUNT,
-            1, 0, 0, 0);
+
+
+        // vkCmdDrawIndexed(framesInFlight.commandBuffer[fifIndex], INDICES_COUNT,
+        //     1, 0, 0, 0);
+
+        // Indirect
+        vkCmdDrawIndexedIndirect(
+            framesInFlight.commandBuffer[fifIndex],
+            indirect_draw_buffer_,
+            0,
+            2,                                          // Number of VkDrawIndexedIndirectCommand created
+            sizeof(VkDrawIndexedIndirectCommand));
 
         vkCmdEndRenderPass(framesInFlight.commandBuffer[fifIndex]);
 
@@ -518,6 +528,16 @@ void Renderer::Teardown() const
     vkFreeMemory(
         device_,
         depth_stencil_memory_,
+        nullptr);
+
+    // Indirect draw
+    vkDestroyBuffer(
+        device_,
+        indirect_draw_buffer_,
+        nullptr);
+    vkFreeMemory(
+        device_,
+        indirect_draw_memory_,
         nullptr);
 
     for (uint32_t i = 0; i < image_count_; i++)
@@ -863,10 +883,45 @@ void Renderer::InitBatch()
 
     // Load the mesh.
     // @todo move outside
-    MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
+    MeshLoader::Load("../resources/meshes/lucy.obj", &batchData);
 
     // Update the global indices count.
     INDICES_COUNT = batchData.indices.size();
+
+    // Indirect drawing
+    // First mesh
+    VkDrawIndexedIndirectCommand indirect_draw_cmd[2] = {};
+    indirect_draw_cmd[0].indexCount = INDICES_COUNT;
+    indirect_draw_cmd[0].instanceCount = 1;
+    indirect_draw_cmd[0].firstIndex = 0;
+    indirect_draw_cmd[0].vertexOffset = 0;
+    indirect_draw_cmd[0].firstInstance = 0;
+
+    // Second mesh
+    indirect_draw_cmd[1].instanceCount = 1;
+    indirect_draw_cmd[1].firstIndex = INDICES_COUNT;
+    indirect_draw_cmd[1].vertexOffset = 0;
+    indirect_draw_cmd[1].firstInstance = 0;
+
+    MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
+    indirect_draw_cmd[1].indexCount = batchData.indices.size() - INDICES_COUNT;
+
+    vk_utils::BufferResult indirect_buffer_result = vk_utils::CreateBuffer(
+        device_,
+        physical_device_,
+        static_cast<size_t>(Utils::ToClosestPowerOfTwo(
+        static_cast<double>(sizeof(VkDrawIndexedIndirectCommand) * 2))),
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT).value();
+
+    indirect_draw_buffer_ = indirect_buffer_result.buffer;
+    indirect_draw_memory_ = indirect_buffer_result.memory;
+
+    void* mapped = {};
+    vkMapMemory(device_, indirect_draw_memory_, 0, sizeof(VkDrawIndexedIndirectCommand) * 2, 0, &mapped);
+    std::memcpy(mapped, &indirect_draw_cmd, sizeof(VkDrawIndexedIndirectCommand) * 2);
+    vkUnmapMemory(device_, indirect_draw_memory_);
+
 
     // Update the color data.
     std::vector<glm::vec4> defaultColors(batchData.position.size(),

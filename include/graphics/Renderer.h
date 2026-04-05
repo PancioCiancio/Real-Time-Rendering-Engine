@@ -330,6 +330,10 @@ private:
      *
      */
     VkDeviceMemory vertexMemory = {};
+
+    // Indirect Drawing
+    VkBuffer indirect_draw_buffer_;
+    VkDeviceMemory indirect_draw_memory_;
 };
 }
 
