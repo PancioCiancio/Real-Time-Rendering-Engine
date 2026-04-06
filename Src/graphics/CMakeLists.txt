@@ -58,6 +58,7 @@ else ()
             "${CMAKE_BINARY_DIR}/src")
 endif ()
 
+configure_file("${CMAKE_SOURCE_DIR}/resources/shaders/indirect_vert.spv" "${CMAKE_BINARY_DIR}/resources/shaders/indirect_vert.spv" COPYONLY)
 configure_file("${CMAKE_SOURCE_DIR}/resources/shaders/vert.spv" "${CMAKE_BINARY_DIR}/resources/shaders/vert.spv" COPYONLY)
 configure_file("${CMAKE_SOURCE_DIR}/resources/shaders/frag.spv" "${CMAKE_BINARY_DIR}/resources/shaders/frag.spv" COPYONLY)
 configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/bunny.obj" "${CMAKE_BINARY_DIR}/resources/meshes/bunny.obj" COPYONLY)

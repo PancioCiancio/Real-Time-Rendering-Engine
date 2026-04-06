@@ -101,8 +101,8 @@ void Renderer::Init()
         "Adro Engine",
         SDL_WINDOWPOS_UNDEFINED,
         SDL_WINDOWPOS_UNDEFINED,
-        640,
-        480,
+        1080,
+        720,
         SDL_WINDOW_VULKAN);
 
     vk_utils::VK_CHECK(volkInitialize());
@@ -540,6 +540,16 @@ void Renderer::Teardown() const
         indirect_draw_memory_,
         nullptr);
 
+    // @SSBO
+    vkDestroyBuffer(
+        device_,
+        ssbo_buffer_,
+        nullptr);
+    vkFreeMemory(
+        device_,
+        ssbo_memory_,
+        nullptr);
+
     for (uint32_t i = 0; i < image_count_; i++)
     {
         vkDestroyFramebuffer(
@@ -653,7 +663,10 @@ void Renderer::InitDevice()
     required_features.sampleRateShading = VK_TRUE;
     required_features.samplerAnisotropy = VK_TRUE;
 
-    const char *device_extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    const char *device_extensions[] = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        "VK_KHR_shader_draw_parameters"
+    };
     physical_device_ = vk_utils::CreatePhysicalDevice(instance_, device_extensions, required_features).value();
 
     uint32_t queue_family_count = 0;
@@ -689,7 +702,7 @@ void Renderer::InitSwapchain()
         surface_,
         {
             surfaceFormat,
-            {640, 480},
+            {1080, 720},
             std::nullopt,
             VK_NULL_HANDLE
         }).value();
@@ -873,12 +886,65 @@ void Renderer::InitCommand()
     }
 }
 
+constexpr size_t ssbo_simultation_instance_count = 1000;
+constexpr size_t ssbo_size = sizeof(glm::mat4) * ssbo_simultation_instance_count;
 
 void Renderer::InitBatch()
 {
+
+    // @SSBO - Begin
+
+    // @todo: create a staging buffer and device local one. Update only the dynamic geometries one.
+    //        requires to calculate the offsets of the geometries.
+    vk_utils::BufferResult ssbo_result = vk_utils::CreateBuffer(
+        device_,
+        physical_device_,
+        ssbo_size,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT).value();
+
+    ssbo_buffer_ = ssbo_result.buffer;
+    ssbo_memory_ = ssbo_result.memory;
+
+    vkMapMemory(device_, ssbo_memory_, 0, ssbo_size, 0, &ssbo_mapped_data_);
+
+    // glm::mat4 initial_models[3] = { glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f) };
+    // initial_models[0] = glm::translate(glm::mat4(1.0f), glm::vec3(-400.0f, -200.0f, 0.0f));
+    // initial_models[0] = glm::rotate(initial_models[0], glm::radians(90.0f), glm::vec3(0.0f, 0.0f, -1.0f));
+    // initial_models[1] = glm::translate(glm::mat4(1.0f), glm::vec3(300.0f, 0.0f, 0.0f));
+
+    std::array<glm::mat4, ssbo_simultation_instance_count> initial_models = {};
+
+    const size_t grid_size = static_cast<size_t>(std::ceil(std::cbrt(initial_models.size())));
+
+    // 2. Define the distance (in world units) between each instance
+    const float spacing = 400.0f;
+
+    for (size_t i = 0; i < initial_models.size(); i++)
+    {
+        // 3. Map the 1D loop index 'i' to 3D grid coordinates
+        size_t x = i % grid_size;
+        size_t y = (i / grid_size) % grid_size;
+        size_t z = i / (grid_size * grid_size);
+
+        // 4. Calculate the actual world positions.
+        // Subtracting (grid_size / 2.0f) centers the entire cube around the world origin (0,0,0)
+        float world_x = (static_cast<float>(x) - (grid_size / 2.0f)) * spacing;
+        float world_y = (static_cast<float>(y) - (grid_size / 2.0f)) * spacing;
+        float world_z = (static_cast<float>(z) - (grid_size / 2.0f)) * spacing;
+
+        // 5. Apply the translation to the identity matrix
+        initial_models[i] = glm::translate(glm::mat4(1.0f), glm::vec3(world_x, world_y, world_z + 2000.0f));
+    }
+
+    std::memcpy(ssbo_mapped_data_, initial_models.data(), ssbo_size);
+    // @SSBO - End
+
+
     // Get the gpu required memory alignment
     VkPhysicalDeviceProperties physicalDeviceProperties = {};
     vkGetPhysicalDeviceProperties(physical_device_, &physicalDeviceProperties);
+
     const VkDeviceSize minAlignment = physicalDeviceProperties.limits.minMemoryMapAlignment;
 
     // Load the mesh.
@@ -890,21 +956,22 @@ void Renderer::InitBatch()
 
     // Indirect drawing
     // First mesh
-    VkDrawIndexedIndirectCommand indirect_draw_cmd[2] = {};
-    indirect_draw_cmd[0].indexCount = INDICES_COUNT;
-    indirect_draw_cmd[0].instanceCount = 1;
-    indirect_draw_cmd[0].firstIndex = 0;
-    indirect_draw_cmd[0].vertexOffset = 0;
-    indirect_draw_cmd[0].firstInstance = 0;
+    VkDrawIndexedIndirectCommand indirect_draw_cmd[1] = {};
+    // indirect_draw_cmd[0].indexCount = INDICES_COUNT;
+    // indirect_draw_cmd[0].instanceCount = 1;
+    // indirect_draw_cmd[0].firstIndex = 0;
+    // indirect_draw_cmd[0].vertexOffset = 0;
+    // indirect_draw_cmd[0].firstInstance = 0;
 
     // Second mesh
-    indirect_draw_cmd[1].instanceCount = 1;
-    indirect_draw_cmd[1].firstIndex = INDICES_COUNT;
-    indirect_draw_cmd[1].vertexOffset = 0;
-    indirect_draw_cmd[1].firstInstance = 0;
-
     MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
-    indirect_draw_cmd[1].indexCount = batchData.indices.size() - INDICES_COUNT;
+    indirect_draw_cmd[0].instanceCount = ssbo_simultation_instance_count;
+    indirect_draw_cmd[0].firstIndex = INDICES_COUNT;
+    indirect_draw_cmd[0].vertexOffset = 0;                  // Offset zero because it is already offsetted in the batch data.
+    indirect_draw_cmd[0].firstInstance = 0;
+
+    // MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
+    indirect_draw_cmd[0].indexCount = batchData.indices.size() - INDICES_COUNT;
 
     vk_utils::BufferResult indirect_buffer_result = vk_utils::CreateBuffer(
         device_,
@@ -1162,7 +1229,7 @@ void Renderer::InitUniformBuffer()
 void Renderer::InitPipeline()
 {
     auto vertShaderCode = FileSystem::ReadFile(
-        "../resources/shaders/vert.spv");
+        "../resources/shaders/indirect_vert.spv");
     auto fragShaderCode = FileSystem::ReadFile(
         "../resources/shaders/frag.spv");
 
@@ -1172,7 +1239,8 @@ void Renderer::InitPipeline()
     vertModuleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     vertModuleInfo.flags = 0;
     vertModuleInfo.codeSize = static_cast<uint32_t>(vertShaderCode.size());
-    vertModuleInfo.pCode = reinterpret_cast<const uint32_t *>(vertShaderCode.data());
+    vertModuleInfo.pCode = reinterpret_cast<const uint32_t *>(vertShaderCode.
+        data());
 
     vk_utils::VK_CHECK(
         vkCreateShaderModule(
@@ -1185,9 +1253,15 @@ void Renderer::InitPipeline()
     fragModuleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     fragModuleInfo.flags = 0;
     fragModuleInfo.codeSize = static_cast<uint32_t>(fragShaderCode.size());
-    fragModuleInfo.pCode = reinterpret_cast<const uint32_t *>(fragShaderCode.data());
+    fragModuleInfo.pCode = reinterpret_cast<const uint32_t *>(fragShaderCode.
+        data());
 
-    vk_utils::VK_CHECK(vkCreateShaderModule(device_, &fragModuleInfo, nullptr, &shaderModules[1]));
+    vk_utils::VK_CHECK(
+        vkCreateShaderModule(
+            device_,
+            &fragModuleInfo,
+            nullptr,
+            &shaderModules[1]));
 
     VkPipelineShaderStageCreateInfo vertStageInfo = {};
     vertStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1216,9 +1290,11 @@ void Renderer::InitPipeline()
     };
 
     VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo = {};
-    dynamicStateCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicStateCreateInfo.sType =
+            VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamicStateCreateInfo.flags = 0;
-    dynamicStateCreateInfo.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicStateCreateInfo.dynamicStateCount = static_cast<uint32_t>(
+        dynamicStates.size());
     dynamicStateCreateInfo.pDynamicStates = dynamicStates.data();
 
     constexpr VkVertexInputBindingDescription bindDesc[] = {
@@ -1265,7 +1341,8 @@ void Renderer::InitPipeline()
     };
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
-    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.sType =
+            VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo.flags = 0;
     vertexInputInfo.vertexBindingDescriptionCount = 3;
     vertexInputInfo.pVertexBindingDescriptions = &bindDesc[0];
@@ -1274,7 +1351,7 @@ void Renderer::InitPipeline()
 
     VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo = {};
     inputAssemblyInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+            VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     inputAssemblyInfo.pNext = nullptr;
     inputAssemblyInfo.flags = 0;
     inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -1305,7 +1382,7 @@ void Renderer::InitPipeline()
 
     VkPipelineRasterizationStateCreateInfo rasterizationInfo = {};
     rasterizationInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizationInfo.flags = 0;
     rasterizationInfo.depthClampEnable = VK_FALSE;
     rasterizationInfo.rasterizerDiscardEnable = VK_FALSE;
@@ -1319,11 +1396,14 @@ void Renderer::InitPipeline()
     rasterizationInfo.lineWidth = 1.0f;
 
     const VkSampleCountFlagBits sample_count = std::min(
-        VK_SAMPLE_COUNT_4_BIT,                                      // Desired sample count bit
-        vk_utils::FindMaxSampleCount(physical_device_).value());    // Supported sample count bit
+        VK_SAMPLE_COUNT_4_BIT,
+        // Desired sample count bit
+        vk_utils::FindMaxSampleCount(
+            physical_device_).value()); // Supported sample count bit
 
     VkPipelineMultisampleStateCreateInfo multisampleInfo = {};
-    multisampleInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampleInfo.sType =
+            VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampleInfo.flags = 0;
     multisampleInfo.rasterizationSamples = sample_count;
     multisampleInfo.sampleShadingEnable = VK_TRUE;
@@ -1335,16 +1415,19 @@ void Renderer::InitPipeline()
     VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
     colorBlendAttachment.blendEnable = VK_FALSE;
     colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor =
+            VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
     colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     VkPipelineColorBlendStateCreateInfo colorBlendInfo = {};
-    colorBlendInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlendInfo.sType =
+            VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     colorBlendInfo.flags = 0;
     colorBlendInfo.logicOpEnable = VK_FALSE;
     colorBlendInfo.logicOp = VK_LOGIC_OP_COPY;
@@ -1355,48 +1438,65 @@ void Renderer::InitPipeline()
     colorBlendInfo.blendConstants[2] = 0.0f;
     colorBlendInfo.blendConstants[3] = 0.0f;
 
-    VkDescriptorSetLayoutBinding uniformBufferSetBinding = {};
-    uniformBufferSetBinding.binding = 0;
-    uniformBufferSetBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uniformBufferSetBinding.descriptorCount = 1;
-    uniformBufferSetBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    uniformBufferSetBinding.pImmutableSamplers = nullptr;
+    // Binding 0: uniform buffer
+    // Binding 1: storage buffer
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings = {};
+    // @Uniform Buffer - Begin
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    // @Uniform Buffer - End
+    // @SSBO - Begin
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    // @SSBO - End
 
     VkDescriptorSetLayoutCreateInfo layoutInfo = {};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings = &uniformBufferSetBinding;
+    layoutInfo.bindingCount = bindings.size();
+    layoutInfo.pBindings = bindings.data();
 
-    vk_utils::VK_CHECK(vkCreateDescriptorSetLayout(device_, &layoutInfo, nullptr,
-        &descriptorSetLayout));
+    vk_utils::VK_CHECK(
+        vkCreateDescriptorSetLayout(
+            device_,
+            &layoutInfo,
+            nullptr,
+            &descriptorSetLayout));
 
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
-    pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_create_info.sType =
+            VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_create_info.flags = 0;
     pipeline_layout_create_info.setLayoutCount = 1;
     pipeline_layout_create_info.pSetLayouts = &descriptorSetLayout;
     pipeline_layout_create_info.pushConstantRangeCount = 0;
     pipeline_layout_create_info.pPushConstantRanges = nullptr;
 
-    vk_utils::VK_CHECK(vkCreatePipelineLayout(
-        device_,
-        &pipeline_layout_create_info,
-        nullptr,
-        &pipelineLayout));
+    vk_utils::VK_CHECK(
+        vkCreatePipelineLayout(
+            device_,
+            &pipeline_layout_create_info,
+            nullptr,
+            &pipelineLayout));
 
     VkStencilOpState stencil_op = {};
-    stencil_op.failOp = VK_STENCIL_OP_KEEP;       // What to do if stencil test fails
-    stencil_op.passOp = VK_STENCIL_OP_REPLACE;    // What to do if stencil & depth pass
-    stencil_op.depthFailOp = VK_STENCIL_OP_KEEP;  // What to do if stencil passes but depth fails
-    stencil_op.compareOp = VK_COMPARE_OP_ALWAYS;  // The condition to pass
+    stencil_op.failOp = VK_STENCIL_OP_KEEP; // What to do if stencil test fails
+    stencil_op.passOp = VK_STENCIL_OP_REPLACE;
+    // What to do if stencil & depth pass
+    stencil_op.depthFailOp = VK_STENCIL_OP_KEEP;
+    // What to do if stencil passes but depth fails
+    stencil_op.compareOp = VK_COMPARE_OP_ALWAYS; // The condition to pass
     stencil_op.compareMask = 0xFF;
     stencil_op.writeMask = 0xFF;
-    stencil_op.reference = 1;                     // The value to write/compare against
+    stencil_op.reference = 1; // The value to write/compare against
 
     // depth + stencil
     VkPipelineDepthStencilStateCreateInfo depth_stencil_state_create_info = {};
     depth_stencil_state_create_info.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+            VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depth_stencil_state_create_info.depthTestEnable = VK_TRUE;
     depth_stencil_state_create_info.depthWriteEnable = VK_TRUE;
     depth_stencil_state_create_info.depthCompareOp = VK_COMPARE_OP_LESS;
@@ -1408,7 +1508,8 @@ void Renderer::InitPipeline()
     depth_stencil_state_create_info.maxDepthBounds = 1.0f;
 
     VkGraphicsPipelineCreateInfo graphisc_pipeline_create_info = {};
-    graphisc_pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    graphisc_pipeline_create_info.sType =
+            VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     graphisc_pipeline_create_info.flags = 0;
     graphisc_pipeline_create_info.stageCount = 2;
     graphisc_pipeline_create_info.pStages = shaderStages;
@@ -1418,7 +1519,8 @@ void Renderer::InitPipeline()
     graphisc_pipeline_create_info.pViewportState = &viewportInfo;
     graphisc_pipeline_create_info.pRasterizationState = &rasterizationInfo;
     graphisc_pipeline_create_info.pMultisampleState = &multisampleInfo;
-    graphisc_pipeline_create_info.pDepthStencilState = &depth_stencil_state_create_info;
+    graphisc_pipeline_create_info.pDepthStencilState = &
+            depth_stencil_state_create_info;
     graphisc_pipeline_create_info.pColorBlendState = &colorBlendInfo;
     graphisc_pipeline_create_info.pDynamicState = &dynamicStateCreateInfo;
     graphisc_pipeline_create_info.layout = pipelineLayout;
@@ -1429,7 +1531,7 @@ void Renderer::InitPipeline()
 
     VkPipelineRasterizationStateCreateInfo pipeline_wireframe_create_info = {};
     pipeline_wireframe_create_info.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     pipeline_wireframe_create_info.flags = 0;
     pipeline_wireframe_create_info.depthClampEnable = VK_FALSE;
     pipeline_wireframe_create_info.rasterizerDiscardEnable = VK_FALSE;
@@ -1443,7 +1545,8 @@ void Renderer::InitPipeline()
     pipeline_wireframe_create_info.lineWidth = 1.0f;
 
     VkGraphicsPipelineCreateInfo pipelineInfoWireframe = {};
-    pipelineInfoWireframe.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfoWireframe.sType =
+            VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfoWireframe.flags = 0;
     pipelineInfoWireframe.stageCount = 2;
     pipelineInfoWireframe.pStages = shaderStages;
@@ -1462,31 +1565,52 @@ void Renderer::InitPipeline()
     pipelineInfoWireframe.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfoWireframe.basePipelineIndex = -1;
 
-    VkGraphicsPipelineCreateInfo pipeline_infos[] = {graphisc_pipeline_create_info,
-                                                     pipelineInfoWireframe};
+    VkGraphicsPipelineCreateInfo pipeline_infos[] = {
+        graphisc_pipeline_create_info,
+        pipelineInfoWireframe
+    };
 
     VkPipeline pipelines[] = {pipeline, pipelineWireframe};
 
-    vk_utils::VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 2, &pipeline_infos[0],
-        nullptr, &pipelines[0]));
+    vk_utils::VK_CHECK(
+        vkCreateGraphicsPipelines(
+            device_,
+            VK_NULL_HANDLE,
+            2,
+            &pipeline_infos[0],
+            nullptr,
+            &pipelines[0]));
 
     pipeline = pipelines[0];
     pipelineWireframe = pipelines[1];
 
-    VkDescriptorPoolSize poolSize = {};
-    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = FramesInFlightType::MAX_FIF_COUNT;
+    // Pool size 0: uniform buffer
+    // Pool size 1: storage buffer
+    std::array<VkDescriptorPoolSize, 2> pool_sizes = {};
+    // @Uniform Buffer - Begin
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_sizes[0].descriptorCount = FramesInFlightType::MAX_FIF_COUNT;
+    // @Uniform Buffer - End
+    // @SSBO - Begin
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    pool_sizes[1].descriptorCount = FramesInFlightType::MAX_FIF_COUNT;
+    // @SSBO - End
 
     VkDescriptorPoolCreateInfo poolCreateInfo = {};
     poolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolCreateInfo.maxSets = FramesInFlightType::MAX_FIF_COUNT;
-    poolCreateInfo.poolSizeCount = 1;
-    poolCreateInfo.pPoolSizes = &poolSize;
+    poolCreateInfo.poolSizeCount = pool_sizes.size();
+    poolCreateInfo.pPoolSizes = pool_sizes.data();
 
-    vk_utils::VK_CHECK(vkCreateDescriptorPool(device_, &poolCreateInfo, nullptr,
-        &descriptorPool));
+    vk_utils::VK_CHECK(
+        vkCreateDescriptorPool(
+            device_,
+            &poolCreateInfo,
+            nullptr,
+            &descriptorPool));
 
-    std::vector<VkDescriptorSetLayout> layouts(FramesInFlightType::MAX_FIF_COUNT,
+    std::vector<VkDescriptorSetLayout> layouts(
+        FramesInFlightType::MAX_FIF_COUNT,
         descriptorSetLayout);
 
     VkDescriptorSetAllocateInfo setAllocateInfo = {};
@@ -1495,31 +1619,62 @@ void Renderer::InitPipeline()
     setAllocateInfo.descriptorSetCount = FramesInFlightType::MAX_FIF_COUNT;
     setAllocateInfo.pSetLayouts = &layouts[0];
 
-    vk_utils::VK_CHECK(vkAllocateDescriptorSets(device_, &setAllocateInfo,
-        &uniformBufferFrames.descriptorSets[0]));
+    vk_utils::VK_CHECK(
+        vkAllocateDescriptorSets(
+            device_,
+            &setAllocateInfo,
+            &uniformBufferFrames.descriptorSets[0]));
 
     for (size_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++)
     {
-        VkDescriptorBufferInfo bufferInfo = {};
-        bufferInfo.buffer = uniformBufferFrames.buffers[i];
-        bufferInfo.offset = 0;
-        bufferInfo.range = sizeof(PerFrameDataCpu);
+        VkDescriptorBufferInfo ubo_info = {};
+        ubo_info.buffer = uniformBufferFrames.buffers[i];
+        ubo_info.offset = 0;
+        ubo_info.range = sizeof(PerFrameDataCpu);
 
-        VkWriteDescriptorSet descriptorSet = {};
-        descriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorSet.dstSet = uniformBufferFrames.descriptorSets[i];
-        descriptorSet.dstBinding = 0;
-        descriptorSet.dstArrayElement = 0;
-        descriptorSet.descriptorCount = 1;
-        descriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorSet.pBufferInfo = &bufferInfo;
+        VkDescriptorBufferInfo ssbo_info = {};
+        ssbo_info.buffer = ssbo_buffer_;
+        ssbo_info.offset = 0;
+        ssbo_info.range = ssbo_size;
 
-        vkUpdateDescriptorSets(device_, 1, &descriptorSet, 0, nullptr);
+        std::array<VkWriteDescriptorSet, 2> descriptor_sets = {};
+        // @Uniform Buffer - Begin
+        descriptor_sets[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptor_sets[0].dstSet = uniformBufferFrames.descriptorSets[i];
+        descriptor_sets[0].dstBinding = 0;
+        descriptor_sets[0].dstArrayElement = 0;
+        descriptor_sets[0].descriptorCount = 1;
+        descriptor_sets[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptor_sets[0].pBufferInfo = &ubo_info;
+        // @Uniform Buffer - End
+        // @SSBO - Begin
+        descriptor_sets[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptor_sets[1].dstSet = uniformBufferFrames.descriptorSets[i];
+        descriptor_sets[1].dstBinding = 1;
+        descriptor_sets[1].dstArrayElement = 0;
+        descriptor_sets[1].descriptorCount = 1;
+        descriptor_sets[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptor_sets[1].pBufferInfo = &ssbo_info;
+        // @SSBO - End
+
+        vkUpdateDescriptorSets(
+            device_,
+            descriptor_sets.size(),
+            descriptor_sets.data(),
+            0,
+            nullptr);
     }
 
-    vkDestroyShaderModule(device_, shaderModules[0], nullptr);
-    vkDestroyShaderModule(device_, shaderModules[1], nullptr);
+    vkDestroyShaderModule(
+        device_,
+        shaderModules[0],
+        nullptr);
+    vkDestroyShaderModule(
+        device_,
+        shaderModules[1],
+        nullptr);
 }
+
 
 void Renderer::PrepareDepthStencil()
 {

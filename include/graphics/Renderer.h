@@ -334,6 +334,11 @@ private:
     // Indirect Drawing
     VkBuffer indirect_draw_buffer_;
     VkDeviceMemory indirect_draw_memory_;
+
+    // SSBO
+    VkBuffer ssbo_buffer_;
+    VkDeviceMemory ssbo_memory_;
+    void* ssbo_mapped_data_;
 };
 }
 
