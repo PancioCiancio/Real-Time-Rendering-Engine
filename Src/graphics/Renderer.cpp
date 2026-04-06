@@ -150,7 +150,7 @@ void Renderer::Update(double delta_time)
     bool stillRunning = true;
     while (stillRunning)
     {
-        constexpr float CAMERA_MOVE_SPEED = 200.639f;
+        constexpr float CAMERA_MOVE_SPEED = 600.639f;
         last = now;
         now = SDL_GetPerformanceCounter();
 
@@ -886,7 +886,7 @@ void Renderer::InitCommand()
     }
 }
 
-constexpr size_t ssbo_simultation_instance_count = 1000;
+constexpr size_t ssbo_simultation_instance_count = 9;
 constexpr size_t ssbo_size = sizeof(glm::mat4) * ssbo_simultation_instance_count;
 
 void Renderer::InitBatch()
@@ -956,22 +956,21 @@ void Renderer::InitBatch()
 
     // Indirect drawing
     // First mesh
-    VkDrawIndexedIndirectCommand indirect_draw_cmd[1] = {};
-    // indirect_draw_cmd[0].indexCount = INDICES_COUNT;
-    // indirect_draw_cmd[0].instanceCount = 1;
-    // indirect_draw_cmd[0].firstIndex = 0;
-    // indirect_draw_cmd[0].vertexOffset = 0;
-    // indirect_draw_cmd[0].firstInstance = 0;
-
-    // Second mesh
-    MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
-    indirect_draw_cmd[0].instanceCount = ssbo_simultation_instance_count;
-    indirect_draw_cmd[0].firstIndex = INDICES_COUNT;
-    indirect_draw_cmd[0].vertexOffset = 0;                  // Offset zero because it is already offsetted in the batch data.
+    VkDrawIndexedIndirectCommand indirect_draw_cmd[2] = {};
+    indirect_draw_cmd[0].indexCount = INDICES_COUNT;
+    indirect_draw_cmd[0].instanceCount = 1;
+    indirect_draw_cmd[0].firstIndex = 0;
+    indirect_draw_cmd[0].vertexOffset = 0;
     indirect_draw_cmd[0].firstInstance = 0;
 
-    // MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
-    indirect_draw_cmd[0].indexCount = batchData.indices.size() - INDICES_COUNT;
+    // Second mesh
+    indirect_draw_cmd[1].instanceCount = ssbo_simultation_instance_count - 1;
+    indirect_draw_cmd[1].firstIndex = INDICES_COUNT;
+    indirect_draw_cmd[1].vertexOffset = 0;                  // Offset zero because it is already offsetted in the batch data.
+    indirect_draw_cmd[1].firstInstance = 1;
+
+    MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
+    indirect_draw_cmd[1].indexCount = batchData.indices.size() - INDICES_COUNT;
 
     vk_utils::BufferResult indirect_buffer_result = vk_utils::CreateBuffer(
         device_,
