@@ -9,7 +9,8 @@ add_library(graphics STATIC
         vk_queue_utils.cpp
         vk_surface_utils.cpp
         vk_swapchain_utils.cpp
-        vk_memory_utils.cpp)
+        vk_memory_utils.cpp
+        vk_context.cpp)
 
 target_include_directories(graphics
         PUBLIC
