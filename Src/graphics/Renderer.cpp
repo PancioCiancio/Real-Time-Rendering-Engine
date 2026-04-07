@@ -934,7 +934,8 @@ void Renderer::InitBatch()
         float world_z = (static_cast<float>(z) - (grid_size / 2.0f)) * spacing;
 
         // 5. Apply the translation to the identity matrix
-        initial_models[i] = glm::translate(glm::mat4(1.0f), glm::vec3(world_x, world_y, world_z + 2000.0f));
+        initial_models[i] = glm::translate(glm::mat4(1.0f), glm::vec3(world_x, world_y, world_z + 2000.0f)) *
+            glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     }
 
     std::memcpy(ssbo_mapped_data_, initial_models.data(), ssbo_size);
@@ -949,7 +950,7 @@ void Renderer::InitBatch()
 
     // Load the mesh.
     // @todo move outside
-    MeshLoader::Load("../resources/meshes/lucy.obj", &batchData);
+    MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
 
     // Update the global indices count.
     INDICES_COUNT = batchData.indices.size();
@@ -969,7 +970,7 @@ void Renderer::InitBatch()
     indirect_draw_cmd[1].vertexOffset = 0;                  // Offset zero because it is already offsetted in the batch data.
     indirect_draw_cmd[1].firstInstance = 1;
 
-    MeshLoader::Load("../resources/meshes/SM_Behemoth.fbx", &batchData);
+    MeshLoader::Load("../resources/meshes/mega_mike_z.fbx", &batchData);
     indirect_draw_cmd[1].indexCount = batchData.indices.size() - INDICES_COUNT;
 
     vk_utils::BufferResult indirect_buffer_result = vk_utils::CreateBuffer(

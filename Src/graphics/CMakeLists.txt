@@ -15,7 +15,7 @@ target_include_directories(graphics
         PUBLIC
         ${CMAKE_SOURCE_DIR}/include/graphics
         "$ENV{VULKAN_SDK}/Include"
-        ${CMAKE_SOURCE_DIR}/external/include)
+        ${CMAKE_SOURCE_DIR}/plugins/include)
 
 target_link_libraries(graphics
         PRIVATE
@@ -41,20 +41,20 @@ if ("${CMAKE_BUILD_TYPE}" EQUAL "Debug")
     target_link_libraries(
             Renderer
             PUBLIC
-            ${CMAKE_SOURCE_DIR}/external/Lib/assimp/assimp-vc143-mtd.lib)
+            ${CMAKE_SOURCE_DIR}/plugins/Lib/assimp/assimp-vc143-mtd.lib)
 
     add_custom_command(
             TARGET graphics POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/external/bin/assimp/assimp-vc143-mtd.dll"
+            COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/plugins/bin/assimp/assimp-vc143-mtd.dll"
             "${CMAKE_BINARY_DIR}/Src")
 else ()
     target_link_libraries(graphics
             PUBLIC
-            ${CMAKE_SOURCE_DIR}/external/libs/assimp/assimp-vc143-mt.lib)
+            ${CMAKE_SOURCE_DIR}/plugins/libs/assimp/assimp-vc143-mt.lib)
 
     add_custom_command(
             TARGET graphics POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/external/bin/assimp/assimp-vc143-mt.dll"
+            COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/plugins/bin/assimp/assimp-vc143-mt.dll"
             "${CMAKE_BINARY_DIR}/src")
 endif ()
 
@@ -64,3 +64,4 @@ configure_file("${CMAKE_SOURCE_DIR}/resources/shaders/frag.spv" "${CMAKE_BINARY_
 configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/bunny.obj" "${CMAKE_BINARY_DIR}/resources/meshes/bunny.obj" COPYONLY)
 configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/lucy.obj" "${CMAKE_BINARY_DIR}/resources/meshes/lucy.obj" COPYONLY)
 configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/SM_Behemoth.fbx" "${CMAKE_BINARY_DIR}/resources/meshes/SM_Behemoth.fbx" COPYONLY)
+configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/mega_mike_z.fbx" "${CMAKE_BINARY_DIR}/resources/meshes/mega_mike_z.fbx" COPYONLY)

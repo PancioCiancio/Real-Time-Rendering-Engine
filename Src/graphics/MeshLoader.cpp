@@ -34,10 +34,10 @@ void MeshLoader::Load(const char *file_path, BatchCpu *batch)
     aiMatrix4x4::Rotation(glm::radians(0.0f), aiVector3D(1, 0, 0), rotX);
 
     aiMatrix4x4 rotY;
-    aiMatrix4x4::Rotation(glm::radians(70.0f), aiVector3D(0, -1, 0), rotY);
+    aiMatrix4x4::Rotation(glm::radians(90.0f), aiVector3D(0, 1, 0), rotY);
 
     aiMatrix4x4 rotZ;
-    aiMatrix4x4::Rotation(glm::radians(60.0f), aiVector3D(0, 0, 1), rotZ);
+    aiMatrix4x4::Rotation(glm::radians(0.0f), aiVector3D(0, 0, 1), rotZ);
 
     ProcessNode(scene->mRootNode, scene, batch, rotX * rotY * rotZ);
 
