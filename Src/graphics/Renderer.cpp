@@ -270,8 +270,8 @@ void Renderer::Update(double delta_time)
         memoryBarrier[0].srcAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
         memoryBarrier[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         memoryBarrier[0].offset = 0;
-        memoryBarrier[0].srcQueueFamilyIndex = present_queue_family_index_;
-        memoryBarrier[0].dstQueueFamilyIndex = present_queue_family_index_;
+        memoryBarrier[0].srcQueueFamilyIndex = transfer_queue_family_index_;
+        memoryBarrier[0].dstQueueFamilyIndex = transfer_queue_family_index_;
         vkCmdPipelineBarrier(framesInFlight.commandBuffer[fifIndex],
             VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -296,8 +296,8 @@ void Renderer::Update(double delta_time)
         memoryBarrier[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         memoryBarrier[1].dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
         memoryBarrier[1].offset = 0;
-        memoryBarrier[1].srcQueueFamilyIndex = present_queue_family_index_;
-        memoryBarrier[1].dstQueueFamilyIndex = present_queue_family_index_;
+        memoryBarrier[1].srcQueueFamilyIndex = transfer_queue_family_index_;
+        memoryBarrier[1].dstQueueFamilyIndex = transfer_queue_family_index_;
         vkCmdPipelineBarrier(framesInFlight.commandBuffer[fifIndex],
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
@@ -621,16 +621,20 @@ void Renderer::InitInstance()
 {
     vk_utils::VK_CHECK(volkInitialize());
 
-    // @todo:	calculate the layers count from the array.
-    const char *requestedLayers[] = {"VK_LAYER_KHRONOS_validation"};
+    // Layers requested by the application.
+    std::array<const char*, 1> layers = {
+        "VK_LAYER_KHRONOS_validation"};
 
-    // @todo:	calculate the extension count from the array.
-    const char *requestedExtensions[] = {
-        VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
+    // extensions requested by the application.
+    std::array<const char*, 3> extensions = {
+        VK_EXT_DEBUG_UTILS_EXTENSION_NAME,      // We want to enable debug
+        VK_KHR_SURFACE_EXTENSION_NAME,          // Need for presentation
+        VK_KHR_WIN32_SURFACE_EXTENSION_NAME};   // Platform specification
 
-    instance_ = vk_utils::CreateInstance(requestedLayers, requestedExtensions).value();
+    instance_ = vk_utils::CreateInstance(
+        layers,
+        extensions,
+        &DEBUG_UTILS_MESSENGER_CREATE_INFO).value();
 
     volkLoadInstance(instance_);
 
@@ -643,7 +647,6 @@ void Renderer::InitInstance()
 
 void Renderer::InitSurface()
 {
-    // @todo use the vulkan call and not the sdl one.
     vk_utils::VK_CHECK(
         SDL_Vulkan_CreateSurface(
             window,
@@ -655,6 +658,7 @@ void Renderer::InitSurface()
 
 void Renderer::InitDevice()
 {
+    // Define here the features requested by the application.
     VkPhysicalDeviceFeatures required_features = {};
     required_features.geometryShader = VK_TRUE;
     required_features.tessellationShader = VK_TRUE;
@@ -663,11 +667,14 @@ void Renderer::InitDevice()
     required_features.sampleRateShading = VK_TRUE;
     required_features.samplerAnisotropy = VK_TRUE;
 
-    const char *device_extensions[] = {
+    std::array<const char*, 2> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        "VK_KHR_shader_draw_parameters"
-    };
-    physical_device_ = vk_utils::CreatePhysicalDevice(instance_, device_extensions, required_features).value();
+        "VK_KHR_shader_draw_parameters"};
+
+    physical_device_ = vk_utils::CreatePhysicalDevice(
+        instance_,
+        device_extensions,
+        required_features).value();
 
     uint32_t queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(
@@ -681,12 +688,32 @@ void Renderer::InitDevice()
         &queue_family_count,
         queue_family_properties.data());
 
-    device_ = vk_utils::CreateDevice(physical_device_, device_extensions, required_features).value();
+    device_ = vk_utils::CreateDevice(
+        physical_device_,
+        device_extensions,
+        required_features).value();
 
     volkLoadDevice(device_);
 
-    present_queue_family_index_ = vk_utils::GetPresentQueueIndex(physical_device_, surface_, queue_family_properties).value();
-    vkGetDeviceQueue(device_, present_queue_family_index_, 0, &present_queue_);
+    present_queue_family_index_ = vk_utils::GetPresentQueueIndex(
+        physical_device_,
+        surface_,
+        queue_family_properties).value();
+
+    transfer_queue_family_index_ = vk_utils::GetTransferQueueIndex(
+        queue_family_properties).value();
+
+    vkGetDeviceQueue(
+        device_,
+        present_queue_family_index_,
+        0,
+        &present_queue_);
+
+    vkGetDeviceQueue(
+        device_,
+        transfer_queue_family_index_,
+        0,
+        &transfer_queue_);
 }
 
 void Renderer::InitSwapchain()

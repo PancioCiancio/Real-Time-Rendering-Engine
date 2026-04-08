@@ -17,7 +17,8 @@ namespace vk_utils {
 
 std::expected<VkInstance, VkResult> CreateInstance(
     std::span<const char* const> layers,
-    std::span<const char* const> extensions);
+    std::span<const char* const> extensions,
+    const VkDebugUtilsMessengerCreateInfoEXT* debug_create_info = nullptr);
 
 }
 

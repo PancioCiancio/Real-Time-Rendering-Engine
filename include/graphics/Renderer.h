@@ -187,15 +187,11 @@ private:
      */
     VkDevice device_ = {};
 
-    /**
-     *
-     */
     VkQueue present_queue_ = {};
+    VkQueue transfer_queue_ = {};
 
-    /**
-     *
-     */
     uint32_t present_queue_family_index_ = {};
+    uint32_t transfer_queue_family_index_ = {};
 
     /**
      *
