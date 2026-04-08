@@ -703,6 +703,9 @@ void Renderer::InitDevice()
     transfer_queue_family_index_ = vk_utils::GetTransferQueueIndex(
         queue_family_properties).value();
 
+    std::println("[Vk] present queue index: {}", present_queue_family_index_);
+    std::println("[Vk] transfer queue index: {}", transfer_queue_family_index_);
+
     vkGetDeviceQueue(
         device_,
         present_queue_family_index_,
