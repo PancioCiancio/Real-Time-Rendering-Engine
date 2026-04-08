@@ -16,8 +16,6 @@
 
 #include <vector>
 
-#include "vk_context.h"
-
 namespace Renderer
 {
 /// Implement application specific render logic (e.g.
@@ -169,7 +167,35 @@ private:
     void PrepareDepthStencil();
 
 private:
-    vk_utils::VulkanContext ctx = {};
+    /**
+     *
+     */
+    VkInstance instance_ = {};
+
+    /**
+     *
+     */
+    VkDebugUtilsMessengerEXT debug_messenger_ = {};
+
+    /**
+     *
+     */
+    VkPhysicalDevice physical_device_ = {};
+
+    /**
+     *
+     */
+    VkDevice device_ = {};
+
+    /**
+     *
+     */
+    VkQueue present_queue_ = {};
+
+    /**
+     *
+     */
+    uint32_t present_queue_family_index_ = {};
 
     /**
      *
@@ -189,6 +215,11 @@ private:
     SDL_Window *window = {};
     VkExtent2D extent_ = {};
     uint32_t image_count_ = 0;
+
+    /**
+     *
+     */
+    VkSurfaceKHR surface_ = {};
 
     /**
      *

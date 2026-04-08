@@ -42,6 +42,53 @@ static VkDeviceSize positionOffset = {};
 static VkDeviceSize normalOffset = {};
 static VkDeviceSize colorOffset = {};
 
+VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
+    VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+    VkDebugUtilsMessageTypeFlagsEXT messageType,
+    const VkDebugUtilsMessengerCallbackDataEXT *callbackData,
+    void *pUserData)
+{
+    // ReSharper disable once CppDFAUnusedValue
+    const char *severity;
+    switch (messageSeverity)
+    {
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: severity = "[VERBOSE]";
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT: severity = "[INFO]";
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: severity = "[WARNING]";
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT: severity = "[ERROR]";
+            break;
+        default: severity = "";
+            break;
+    }
+
+    // @TODO:	cover the message type as well....
+
+    std::printf("[VK] %s %s\n", severity, callbackData->pMessage);
+
+    return VK_FALSE;
+}
+
+constexpr VkDebugUtilsMessageSeverityFlagsEXT DEBUG_UTILS_MESSAGE_SEVERITY_FLAGS =
+    VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+    VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+
+constexpr VkDebugUtilsMessageTypeFlagsEXT DEBUG_UTILS_MESSAGE_TYPE_FLAGS =
+    VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+    VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+    VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+
+constexpr VkDebugUtilsMessengerCreateInfoEXT DEBUG_UTILS_MESSENGER_CREATE_INFO = {
+    .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+    .pNext = nullptr,
+    .flags = 0,
+    .messageSeverity = DEBUG_UTILS_MESSAGE_SEVERITY_FLAGS,
+    .messageType = DEBUG_UTILS_MESSAGE_TYPE_FLAGS,
+    .pfnUserCallback = DebugCallback,
+    .pUserData = nullptr,
+};
 
 void Renderer::Init()
 {
@@ -58,9 +105,11 @@ void Renderer::Init()
         720,
         SDL_WINDOW_VULKAN);
 
+    vk_utils::VK_CHECK(volkInitialize());
 
-    ctx = vk_utils::CreateContext(window).value();
-
+    InitInstance();
+    InitSurface();
+    InitDevice();
     InitSwapchain();
     InitOtherImages();
     InitUniformBuffer();
@@ -163,16 +212,16 @@ void Renderer::Update(double delta_time)
 
         cameraPos = glm::mix(cameraPos, cameraPosNew, cameraLerpAlpha);
 
-        vkWaitForFences(ctx.device, 1, &framesInFlight.submitFence[fifIndex],
+        vkWaitForFences(device_, 1, &framesInFlight.submitFence[fifIndex],
             VK_TRUE, UINT64_MAX);
 
         uint32_t next_image = 0u;
-        vk_utils::VK_CHECK(vkAcquireNextImageKHR(ctx.device, swapchain_, UINT64_MAX,
+        vk_utils::VK_CHECK(vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX,
             framesInFlight.acquiredImageSemaphore[fifIndex],
             VK_NULL_HANDLE, &next_image));
 
-        vkResetFences(ctx.device, 1, &framesInFlight.submitFence[fifIndex]);
-        vkResetCommandPool(ctx.device, framesInFlight.commandPool[fifIndex], 0);
+        vkResetFences(device_, 1, &framesInFlight.submitFence[fifIndex]);
+        vkResetCommandPool(device_, framesInFlight.commandPool[fifIndex], 0);
 
         // @todo this should be moved outside of the graphics library
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
@@ -190,7 +239,7 @@ void Renderer::Update(double delta_time)
         uBuffer.projection[5] *= -1;
 
         vk_utils::VK_CHECK(vkMapMemory(
-            ctx.device,
+            device_,
             uniformBufferFrames.memory[fifIndex],
             0,
             sizeof(uBuffer),
@@ -201,7 +250,7 @@ void Renderer::Update(double delta_time)
 
         memcpy(uniformBufferFrames.data_mapped[fifIndex], &uBuffer, uBufferSize);
 
-        vkUnmapMemory(ctx.device, uniformBufferFrames.memory[fifIndex]);
+        vkUnmapMemory(device_, uniformBufferFrames.memory[fifIndex]);
 
         VkCommandBufferBeginInfo commandBufferBeginInfo = {};
         commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -221,8 +270,8 @@ void Renderer::Update(double delta_time)
         memoryBarrier[0].srcAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
         memoryBarrier[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         memoryBarrier[0].offset = 0;
-        memoryBarrier[0].srcQueueFamilyIndex = ctx.present_family_idx;
-        memoryBarrier[0].dstQueueFamilyIndex = ctx.present_family_idx;
+        memoryBarrier[0].srcQueueFamilyIndex = present_queue_family_index_;
+        memoryBarrier[0].dstQueueFamilyIndex = present_queue_family_index_;
         vkCmdPipelineBarrier(framesInFlight.commandBuffer[fifIndex],
             VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -247,8 +296,8 @@ void Renderer::Update(double delta_time)
         memoryBarrier[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         memoryBarrier[1].dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
         memoryBarrier[1].offset = 0;
-        memoryBarrier[1].srcQueueFamilyIndex = ctx.present_family_idx;
-        memoryBarrier[1].dstQueueFamilyIndex = ctx.present_family_idx;
+        memoryBarrier[1].srcQueueFamilyIndex = present_queue_family_index_;
+        memoryBarrier[1].dstQueueFamilyIndex = present_queue_family_index_;
         vkCmdPipelineBarrier(framesInFlight.commandBuffer[fifIndex],
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
@@ -355,7 +404,7 @@ void Renderer::Update(double delta_time)
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signal_semaphores;
 
-        vk_utils::VK_CHECK(vkQueueSubmit(ctx.present_queue, 1, &submitInfo, framesInFlight.submitFence[fifIndex]));
+        vk_utils::VK_CHECK(vkQueueSubmit(present_queue_, 1, &submitInfo, framesInFlight.submitFence[fifIndex]));
 
         VkResult result = {};
         VkPresentInfoKHR presentInfo = {};
@@ -368,7 +417,7 @@ void Renderer::Update(double delta_time)
         presentInfo.pResults = &result;
 
         // @todo: cannot present the image if the window is minimized.
-        vk_utils::VK_CHECK(vkQueuePresentKHR(ctx.present_queue, &presentInfo));
+        vk_utils::VK_CHECK(vkQueuePresentKHR(present_queue_, &presentInfo));
 
         // --- Your game update & render logic here ---
         // Example: updateGame(deltaTime); render();
@@ -386,61 +435,61 @@ void Renderer::Update(double delta_time)
 void Renderer::Teardown() const
 {
     vk_utils::VK_CHECK(
-        vkDeviceWaitIdle(ctx.device));
+        vkDeviceWaitIdle(device_));
 
     vkDestroyDescriptorPool(
-        ctx.device,
+        device_,
         descriptorPool,
         nullptr);
     vkDestroyDescriptorSetLayout(
-        ctx.device,
+        device_,
         descriptorSetLayout,
         nullptr);
     vkDestroyRenderPass(
-        ctx.device,
+        device_,
         renderPass,
         nullptr);
     vkDestroyPipelineLayout(
-        ctx.device,
+        device_,
         pipelineLayout,
         nullptr);
     vkDestroyPipeline(
-        ctx.device,
+        device_,
         pipeline,
         nullptr);
     vkDestroyPipeline(
-        ctx.device,
+        device_,
         pipelineWireframe,
         nullptr);
     vkDestroyBuffer(
-        ctx.device,
+        device_,
         stageVertexBuffer,
         nullptr);
     vkFreeMemory(
-        ctx.device,
+        device_,
         stageVertexMemory,
         nullptr);
     vkDestroyBuffer(
-        ctx.device,
+        device_,
         vertexBuffer,
         nullptr);
     vkFreeMemory(
-        ctx.device,
+        device_,
         vertexMemory,
         nullptr);
     vkDestroyBuffer(
-        ctx.device,
+        device_,
         batch.indexBuffer,
         nullptr);
     vkFreeMemory(
-        ctx.device,
+        device_,
         batch.indexMem,
         nullptr);
 
     for (const VkDeviceMemory &memory : uniformBufferFrames.memory)
     {
         vkFreeMemory(
-            ctx.device,
+            device_,
             memory,
             nullptr);
     }
@@ -448,73 +497,73 @@ void Renderer::Teardown() const
     for (const VkBuffer &buffer : uniformBufferFrames.buffers)
     {
         vkDestroyBuffer(
-            ctx.device,
+            device_,
             buffer,
             nullptr);
     }
 
     // Multisaple image
     vkDestroyImageView(
-        ctx.device,
+        device_,
         framebufferSampleImageView,
         nullptr);
     vkDestroyImage(
-        ctx.device,
+        device_,
         framebufferSampleImage,
         nullptr);
     vkFreeMemory(
-        ctx.device,
+        device_,
         framebufferSampleImageMemory,
         nullptr);
 
     // Depth stencil
     vkDestroyImageView(
-        ctx.device,
+        device_,
         depth_stencil_image_view_,
         nullptr);
     vkDestroyImage(
-        ctx.device,
+        device_,
         depth_stencil_image_,
         nullptr);
     vkFreeMemory(
-        ctx.device,
+        device_,
         depth_stencil_memory_,
         nullptr);
 
     // Indirect draw
     vkDestroyBuffer(
-        ctx.device,
+        device_,
         indirect_draw_buffer_,
         nullptr);
     vkFreeMemory(
-        ctx.device,
+        device_,
         indirect_draw_memory_,
         nullptr);
 
     // @SSBO
     vkDestroyBuffer(
-        ctx.device,
+        device_,
         ssbo_buffer_,
         nullptr);
     vkFreeMemory(
-        ctx.device,
+        device_,
         ssbo_memory_,
         nullptr);
 
     for (uint32_t i = 0; i < image_count_; i++)
     {
         vkDestroyFramebuffer(
-            ctx.device,
+            device_,
             presentationFrames.framebuffer[i],
             nullptr);
 
         vkDestroyImageView(
-            ctx.device,
+            device_,
             presentationFrames.imageView[i],
             nullptr);
 
         vkDestroySemaphore(
-            ctx.device,
+            device_,
             presentationFrames.renderFinishedSemaphore[i],
             nullptr);
     }
@@ -522,7 +571,7 @@ void Renderer::Teardown() const
     for (const VkSemaphore &framesInFlightSemaphore : framesInFlight.acquiredImageSemaphore)
     {
         vkDestroySemaphore(
-            ctx.device,
+            device_,
             framesInFlightSemaphore,
             nullptr);
     }
@@ -530,42 +579,127 @@ void Renderer::Teardown() const
     for (const VkFence &framesInFlightFence : framesInFlight.submitFence)
     {
         vkDestroyFence(
-            ctx.device,
+            device_,
             framesInFlightFence,
             nullptr);
     }
 
     vkDestroySwapchainKHR(
-        ctx.device,
+        device_,
         swapchain_,
         nullptr);
 
     for (const VkCommandPool &framesInFlightCommandPool : framesInFlight.commandPool)
     {
         vkDestroyCommandPool(
-            ctx.device,
+            device_,
             framesInFlightCommandPool,
             nullptr);
     }
 
-    vk_utils::DestroyContext(ctx);
+    vkDestroyDevice(
+        device_,
+        nullptr);
+    vkDestroySurfaceKHR(
+        instance_,
+        surface_,
+        nullptr);
+    vkDestroyDebugUtilsMessengerEXT(
+        instance_,
+        debug_messenger_,
+        nullptr);
+    vkDestroyInstance(
+        instance_,
+        nullptr);
 
     SDL_DestroyWindow(
         window);
     SDL_Quit();
 }
 
+void Renderer::InitInstance()
+{
+    vk_utils::VK_CHECK(volkInitialize());
+
+    // @todo:	calculate the layers count from the array.
+    const char *requestedLayers[] = {"VK_LAYER_KHRONOS_validation"};
+
+    // @todo:	calculate the extension count from the array.
+    const char *requestedExtensions[] = {
+        VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+        VK_KHR_SURFACE_EXTENSION_NAME,
+        VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
+
+    instance_ = vk_utils::CreateInstance(requestedLayers, requestedExtensions).value();
+
+    volkLoadInstance(instance_);
+
+    vkCreateDebugUtilsMessengerEXT(
+        instance_,
+        &DEBUG_UTILS_MESSENGER_CREATE_INFO,
+        nullptr,
+        &debug_messenger_);
+}
+
+void Renderer::InitSurface()
+{
+    // @todo use the vulkan call and not the sdl one.
+    vk_utils::VK_CHECK(
+        SDL_Vulkan_CreateSurface(
+            window,
+            instance_,
+            &surface_)
+        ? VK_SUCCESS
+        : VK_ERROR_INITIALIZATION_FAILED);
+}
+
+void Renderer::InitDevice()
+{
+    VkPhysicalDeviceFeatures required_features = {};
+    required_features.geometryShader = VK_TRUE;
+    required_features.tessellationShader = VK_TRUE;
+    required_features.multiDrawIndirect = VK_TRUE;
+    required_features.fillModeNonSolid = VK_TRUE;
+    required_features.sampleRateShading = VK_TRUE;
+    required_features.samplerAnisotropy = VK_TRUE;
+
+    const char *device_extensions[] = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        "VK_KHR_shader_draw_parameters"
+    };
+    physical_device_ = vk_utils::CreatePhysicalDevice(instance_, device_extensions, required_features).value();
+
+    uint32_t queue_family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        physical_device_,
+        &queue_family_count,
+        nullptr);    // pQueueFamilyProperties;
+
+    std::vector<VkQueueFamilyProperties> queue_family_properties(queue_family_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(
+        physical_device_,
+        &queue_family_count,
+        queue_family_properties.data());
+
+    device_ = vk_utils::CreateDevice(physical_device_, device_extensions, required_features).value();
+
+    volkLoadDevice(device_);
+
+    present_queue_family_index_ = vk_utils::GetPresentQueueIndex(physical_device_, surface_, queue_family_properties).value();
+    vkGetDeviceQueue(device_, present_queue_family_index_, 0, &present_queue_);
+}
+
 void Renderer::InitSwapchain()
 {
     surfaceFormat = vk_utils::SelectSurfaceFormat(
-        ctx.phys_device,
-        ctx.surface,
+        physical_device_,
+        surface_,
         {VK_FORMAT_R8G8B8A8_SRGB, std::nullopt}).value();
 
     vk_utils::SwapchainResult swapchain_result = vk_utils::CreateSwapchain(
-        ctx.device,
-        ctx.phys_device,
-        ctx.surface,
+        device_,
+        physical_device_,
+        surface_,
         {
             surfaceFormat,
             {1080, 720},
@@ -577,7 +711,7 @@ void Renderer::InitSwapchain()
     extent_ = swapchain_result.extent;
     image_count_ = swapchain_result.image_count;
 
-    presentationFrames.image = vk_utils::GetSwapchainImages(ctx.device, swapchain_).value();
+    presentationFrames.image = vk_utils::GetSwapchainImages(device_, swapchain_).value();
     presentationFrames.imageView.reserve(image_count_);
     presentationFrames.framebuffer.reserve(image_count_);
     presentationFrames.renderFinishedSemaphore.reserve(image_count_);
@@ -587,7 +721,7 @@ void Renderer::InitSwapchain()
     {
         VkImageView image_view = {};
         image_view = vk_utils::CreateImageView(
-            ctx.device,
+            device_,
             presentationFrames.image[i],
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_IMAGE_VIEW_TYPE_2D,
@@ -610,7 +744,7 @@ void Renderer::InitSwapchain()
         VkSemaphore semaphore = {};
         vk_utils::VK_CHECK(
             vkCreateSemaphore(
-                ctx.device,
+                device_,
                 &semaphoreCreateInfo,
                 nullptr,
                 &semaphore));
@@ -622,11 +756,11 @@ void Renderer::InitOtherImages()
 {
     const VkSampleCountFlagBits sample_count = std::min(
         VK_SAMPLE_COUNT_4_BIT,                                      // Desired sample count bit
-        vk_utils::FindMaxSampleCount(ctx.phys_device).value());    // Supported sample count bit
+        vk_utils::FindMaxSampleCount(physical_device_).value());    // Supported sample count bit
 
     vk_utils::ImageResult sample_image_result = vk_utils::CreateImage(
-        ctx.device,
-        ctx.phys_device,
+        device_,
+        physical_device_,
         VK_IMAGE_TYPE_2D,
         surfaceFormat.format,
         {
@@ -643,7 +777,7 @@ void Renderer::InitOtherImages()
     framebufferSampleImageMemory = sample_image_result.memory;
 
     framebufferSampleImageView = vk_utils::CreateImageView(
-        ctx.device,
+        device_,
         framebufferSampleImage,
         VK_IMAGE_ASPECT_COLOR_BIT,
         VK_IMAGE_VIEW_TYPE_2D,
@@ -668,14 +802,14 @@ void Renderer::InitOtherImages()
     };
 
     depth_stencil_format_ = vk_utils::FindFirstSupportedFormat(
-        ctx.phys_device,
+        physical_device_,
         depth_stencil_requested_formats,
         VK_IMAGE_TILING_OPTIMAL,
         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT).value();
 
     vk_utils::ImageResult depth_stencil_image_result = vk_utils::CreateImage(
-        ctx.device,
-        ctx.phys_device,
+        device_,
+        physical_device_,
         VK_IMAGE_TYPE_2D,
         depth_stencil_format_,
         {extent_.width, extent_.height, 1},
@@ -688,7 +822,7 @@ void Renderer::InitOtherImages()
     depth_stencil_memory_ = depth_stencil_image_result.memory;
 
     depth_stencil_image_view_ = vk_utils::CreateImageView(
-        ctx.device,
+        device_,
         depth_stencil_image_,
         VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
         VK_IMAGE_VIEW_TYPE_2D,
@@ -707,14 +841,14 @@ void Renderer::InitCommand()
     cmd_pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     cmd_pool_create_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
                                   VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    cmd_pool_create_info.queueFamilyIndex = ctx.present_family_idx;
+    cmd_pool_create_info.queueFamilyIndex = present_queue_family_index_;
 
     for (size_t i = 0; i < FramesInFlightType::MAX_FIF_COUNT; i++)
     {
         VkCommandPool &fifCommandPool = framesInFlight.commandPool[i];
 
         vk_utils::VK_CHECK(vkCreateCommandPool(
-            ctx.device,
+            device_,
             &cmd_pool_create_info,
             nullptr,
             &fifCommandPool));
@@ -726,7 +860,7 @@ void Renderer::InitCommand()
         cmd_buffer_allocation_info.commandBufferCount = 1;
 
         vk_utils::VK_CHECK(vkAllocateCommandBuffers(
-            ctx.device,
+            device_,
             &cmd_buffer_allocation_info,
             &framesInFlight.commandBuffer[i]));
 
@@ -735,7 +869,7 @@ void Renderer::InitCommand()
         semaphore_create_info.flags = 0;
 
         vk_utils::VK_CHECK(vkCreateSemaphore(
-            ctx.device,
+            device_,
             &semaphore_create_info,
             nullptr,
             &framesInFlight.acquiredImageSemaphore[i]));
@@ -745,7 +879,7 @@ void Renderer::InitCommand()
         fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
         vk_utils::VK_CHECK(vkCreateFence(
-            ctx.device,
+            device_,
             &fence_create_info,
             nullptr,
             &framesInFlight.submitFence[i]));
@@ -763,8 +897,8 @@ void Renderer::InitBatch()
     // @todo: create a staging buffer and device local one. Update only the dynamic geometries one.
     //        requires to calculate the offsets of the geometries.
     vk_utils::BufferResult ssbo_result = vk_utils::CreateBuffer(
-        ctx.device,
-        ctx.phys_device,
+        device_,
+        physical_device_,
         ssbo_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT).value();
@@ -772,7 +906,7 @@ void Renderer::InitBatch()
     ssbo_buffer_ = ssbo_result.buffer;
     ssbo_memory_ = ssbo_result.memory;
 
-    vkMapMemory(ctx.device, ssbo_memory_, 0, ssbo_size, 0, &ssbo_mapped_data_);
+    vkMapMemory(device_, ssbo_memory_, 0, ssbo_size, 0, &ssbo_mapped_data_);
 
     // glm::mat4 initial_models[3] = { glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f) };
     // initial_models[0] = glm::translate(glm::mat4(1.0f), glm::vec3(-400.0f, -200.0f, 0.0f));
@@ -810,7 +944,7 @@ void Renderer::InitBatch()
 
     // Get the gpu required memory alignment
     VkPhysicalDeviceProperties physicalDeviceProperties = {};
-    vkGetPhysicalDeviceProperties(ctx.phys_device, &physicalDeviceProperties);
+    vkGetPhysicalDeviceProperties(physical_device_, &physicalDeviceProperties);
 
     const VkDeviceSize minAlignment = physicalDeviceProperties.limits.minMemoryMapAlignment;
 
@@ -840,8 +974,8 @@ void Renderer::InitBatch()
     indirect_draw_cmd[1].indexCount = batchData.indices.size() - INDICES_COUNT;
 
     vk_utils::BufferResult indirect_buffer_result = vk_utils::CreateBuffer(
-        ctx.device,
-        ctx.phys_device,
+        device_,
+        physical_device_,
         static_cast<size_t>(Utils::ToClosestPowerOfTwo(
         static_cast<double>(sizeof(VkDrawIndexedIndirectCommand) * 2))),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
@@ -851,9 +985,9 @@ void Renderer::InitBatch()
     indirect_draw_memory_ = indirect_buffer_result.memory;
 
     void* mapped = {};
-    vkMapMemory(ctx.device, indirect_draw_memory_, 0, sizeof(VkDrawIndexedIndirectCommand) * 2, 0, &mapped);
+    vkMapMemory(device_, indirect_draw_memory_, 0, sizeof(VkDrawIndexedIndirectCommand) * 2, 0, &mapped);
     std::memcpy(mapped, &indirect_draw_cmd, sizeof(VkDrawIndexedIndirectCommand) * 2);
-    vkUnmapMemory(ctx.device, indirect_draw_memory_);
+    vkUnmapMemory(device_, indirect_draw_memory_);
 
 
     // Update the color data.
@@ -876,8 +1010,8 @@ void Renderer::InitBatch()
 
     // Create the staging buffer
     vk_utils::BufferResult stage_buffer_result = vk_utils::CreateBuffer(
-        ctx.device,
-        ctx.phys_device,
+        device_,
+        physical_device_,
         vertexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT).value();
@@ -886,8 +1020,8 @@ void Renderer::InitBatch()
     stageVertexMemory = stage_buffer_result.memory;
 
     // Create the device local buffer
-    vk_utils::BufferResult buffer_result = vk_utils::CreateBuffer(ctx.device,
-        ctx.phys_device,
+    vk_utils::BufferResult buffer_result = vk_utils::CreateBuffer(device_,
+        physical_device_,
         vertexBufferSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT).value();
@@ -898,7 +1032,7 @@ void Renderer::InitBatch()
     void *data = {};
 
     // Map the entire buffer's memory range.
-    vkMapMemory(ctx.device, stageVertexMemory, 0, vertexBufferSize, 0, &data);
+    vkMapMemory(device_, stageVertexMemory, 0, vertexBufferSize, 0, &data);
 
     // Copy each data set to its calculated offset
     char *basePtr = static_cast<char *>(data);
@@ -907,14 +1041,14 @@ void Renderer::InitBatch()
     memcpy(basePtr + colorOffset, batchData.color.data(), colorSize);
 
     // Unmap the memory
-    vkUnmapMemory(ctx.device, stageVertexMemory);
+    vkUnmapMemory(device_, stageVertexMemory);
 
     const size_t actualIndexBufferSize = sizeof(uint32_t) * batchData.indices.size();
     const auto indexBufferSize = static_cast<size_t>(Utils::ToClosestPowerOfTwo(
         static_cast<double>(actualIndexBufferSize)));
     vk_utils::BufferResult batch_buffer_result = vk_utils::CreateBuffer(
-        ctx.device,
-        ctx.phys_device,
+        device_,
+        physical_device_,
         indexBufferSize,
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT).value();
@@ -925,7 +1059,7 @@ void Renderer::InitBatch()
     void *index_data = nullptr;
     vk_utils::VK_CHECK(
         vkMapMemory(
-            ctx.device,
+            device_,
             batch.indexMem,
             0,
             indexBufferSize,
@@ -938,7 +1072,7 @@ void Renderer::InitBatch()
         sizeof(uint32_t) * batchData.indices.size());
 
     vkUnmapMemory(
-        ctx.device,
+        device_,
         batch.indexMem);
 }
 
@@ -967,7 +1101,7 @@ void Renderer::InitFramebuffers()
         VkFramebuffer framebuffer = {};
         vk_utils::VK_CHECK(
             vkCreateFramebuffer(
-                ctx.device,
+                device_,
                 &framebuffer_create_info,
                 nullptr,
                 &framebuffer));
@@ -979,7 +1113,7 @@ void Renderer::InitRenderpass()
 {
     const VkSampleCountFlagBits sample_counts = std::min(
         VK_SAMPLE_COUNT_4_BIT,                                      // Desired sample count bit
-        vk_utils::FindMaxSampleCount(ctx.phys_device).value());    // Supported sample count bit
+        vk_utils::FindMaxSampleCount(physical_device_).value());    // Supported sample count bit
 
     VkAttachmentDescription color_attachment = {};
     color_attachment.flags = 0;
@@ -1071,7 +1205,7 @@ void Renderer::InitRenderpass()
     render_pass_create_info.dependencyCount = 1;
     render_pass_create_info.pDependencies = &dependency;
 
-    vk_utils::VK_CHECK(vkCreateRenderPass(ctx.device, &render_pass_create_info, nullptr, &renderPass));
+    vk_utils::VK_CHECK(vkCreateRenderPass(device_, &render_pass_create_info, nullptr, &renderPass));
 }
 
 void Renderer::InitUniformBuffer()
@@ -1081,8 +1215,8 @@ void Renderer::InitUniformBuffer()
         constexpr VkDeviceSize bufferSize = sizeof(PerFrameDataCpu);
 
         const vk_utils::BufferResult buffer_result = vk_utils::CreateBuffer(
-            ctx.device,
-            ctx.phys_device,
+            device_,
+            physical_device_,
             bufferSize,
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT).value();
@@ -1110,7 +1244,7 @@ void Renderer::InitPipeline()
 
     vk_utils::VK_CHECK(
         vkCreateShaderModule(
-            ctx.device,
+            device_,
             &vertModuleInfo,
             nullptr,
             &shaderModules[0]));
@@ -1124,7 +1258,7 @@ void Renderer::InitPipeline()
 
     vk_utils::VK_CHECK(
         vkCreateShaderModule(
-            ctx.device,
+            device_,
             &fragModuleInfo,
             nullptr,
             &shaderModules[1]));
@@ -1265,7 +1399,7 @@ void Renderer::InitPipeline()
         VK_SAMPLE_COUNT_4_BIT,
         // Desired sample count bit
         vk_utils::FindMaxSampleCount(
-            ctx.phys_device).value()); // Supported sample count bit
+            physical_device_).value()); // Supported sample count bit
 
     VkPipelineMultisampleStateCreateInfo multisampleInfo = {};
     multisampleInfo.sType =
@@ -1327,7 +1461,7 @@ void Renderer::InitPipeline()
 
     vk_utils::VK_CHECK(
         vkCreateDescriptorSetLayout(
-            ctx.device,
+            device_,
             &layoutInfo,
             nullptr,
             &descriptorSetLayout));
@@ -1343,7 +1477,7 @@ void Renderer::InitPipeline()
 
     vk_utils::VK_CHECK(
         vkCreatePipelineLayout(
-            ctx.device,
+            device_,
             &pipeline_layout_create_info,
             nullptr,
             &pipelineLayout));
@@ -1440,7 +1574,7 @@ void Renderer::InitPipeline()
 
     vk_utils::VK_CHECK(
         vkCreateGraphicsPipelines(
-            ctx.device,
+            device_,
             VK_NULL_HANDLE,
             2,
             &pipeline_infos[0],
@@ -1470,7 +1604,7 @@ void Renderer::InitPipeline()
 
     vk_utils::VK_CHECK(
         vkCreateDescriptorPool(
-            ctx.device,
+            device_,
             &poolCreateInfo,
             nullptr,
             &descriptorPool));
@@ -1487,7 +1621,7 @@ void Renderer::InitPipeline()
 
     vk_utils::VK_CHECK(
         vkAllocateDescriptorSets(
-            ctx.device,
+            device_,
             &setAllocateInfo,
             &uniformBufferFrames.descriptorSets[0]));
 
@@ -1524,7 +1658,7 @@ void Renderer::InitPipeline()
         // @SSBO - End
 
         vkUpdateDescriptorSets(
-            ctx.device,
+            device_,
             descriptor_sets.size(),
             descriptor_sets.data(),
             0,
@@ -1532,11 +1666,11 @@ void Renderer::InitPipeline()
     }
 
     vkDestroyShaderModule(
-        ctx.device,
+        device_,
         shaderModules[0],
         nullptr);
     vkDestroyShaderModule(
-        ctx.device,
+        device_,
         shaderModules[1],
         nullptr);
 }
@@ -1575,7 +1709,7 @@ void Renderer::PrepareDepthStencil()
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &framesInFlight.commandBuffer[0];
 
-    vkQueueSubmit(ctx.present_queue, 1, &submitInfo, VK_NULL_HANDLE);
-    vkQueueWaitIdle(ctx.present_queue);
+    vkQueueSubmit(present_queue_, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(present_queue_);
 }
 } // Renderer
