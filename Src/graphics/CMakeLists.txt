@@ -3,7 +3,6 @@ find_package(Vulkan REQUIRED)
 add_library(graphics STATIC
         "MeshLoader.cpp"
         "Renderer.cpp"
-        vk_instance_utils.cpp
         vk_physical_device_utils.cpp
         vk_device_utils.cpp
         vk_queue_utils.cpp
@@ -65,3 +64,4 @@ configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/bunny.obj" "${CMAKE_BINARY_
 configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/lucy.obj" "${CMAKE_BINARY_DIR}/resources/meshes/lucy.obj" COPYONLY)
 configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/SM_Behemoth.fbx" "${CMAKE_BINARY_DIR}/resources/meshes/SM_Behemoth.fbx" COPYONLY)
 configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/mega_mike_z.fbx" "${CMAKE_BINARY_DIR}/resources/meshes/mega_mike_z.fbx" COPYONLY)
+configure_file("${CMAKE_SOURCE_DIR}/resources/textures/mega_mike_z/T_ZMike_Green_Base_color.png" "${CMAKE_BINARY_DIR}/resources/textures/mega_mike_z/T_ZMike_Green_Base_color.png" COPYONLY)

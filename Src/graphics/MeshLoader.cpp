@@ -23,6 +23,7 @@ void MeshLoader::Load(const char *file_path, BatchCpu *batch)
         file_path,
         aiProcess_Triangulate |
         aiProcess_GenNormals |
+        // aiProcess_GenUVCoords |
         aiProcess_JoinIdenticalVertices);
 
     if (!scene)

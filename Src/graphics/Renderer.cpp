@@ -13,7 +13,6 @@
 #include "Memory.h"
 
 #include "vk_core_utils.h"
-#include "vk_instance_utils.h"
 #include "vk_physical_device_utils.h"
 #include "vk_device_utils.h"
 #include "vk_queue_utils.h"
@@ -23,6 +22,9 @@
 
 #include <SDL2/SDL_vulkan.h>
 #include <glm/gtc/type_ptr.hpp>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
 
 namespace Utils
 {
@@ -631,10 +633,22 @@ void Renderer::InitInstance()
         VK_KHR_SURFACE_EXTENSION_NAME,          // Need for presentation
         VK_KHR_WIN32_SURFACE_EXTENSION_NAME};   // Platform specification
 
-    instance_ = vk_utils::CreateInstance(
-        layers,
-        extensions,
-        &DEBUG_UTILS_MESSENGER_CREATE_INFO).value();
+    VkApplicationInfo app_info = {};
+    app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    app_info.pApplicationName = "Orda";
+    app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+    app_info.apiVersion = VK_MAKE_VERSION(1, 0, 0);
+
+    VkInstanceCreateInfo create_info = {};
+    create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    create_info.pNext = &DEBUG_UTILS_MESSENGER_CREATE_INFO;
+    create_info.pApplicationInfo = &app_info;
+    create_info.enabledLayerCount = static_cast<uint32_t>(std::size(layers));
+    create_info.ppEnabledLayerNames = layers.data();
+    create_info.enabledExtensionCount = static_cast<uint32_t>(std::size(extensions));
+    create_info.ppEnabledExtensionNames = extensions.data();
+
+    vk_utils::VK_CHECK(vkCreateInstance(&create_info, nullptr, &instance_));
 
     volkLoadInstance(instance_);
 
@@ -1217,8 +1231,7 @@ void Renderer::InitRenderpass()
                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     dependency.dependencyFlags = 0;
 
-    constexpr uint32_t attachemnt_desc_count = 3;
-    const VkAttachmentDescription attachment_descs[attachemnt_desc_count] = {
+    const std::array<VkAttachmentDescription, 3> attachment_descs = {
         color_attachment,
         depth_attachment,
         color_resolver_attachment,
@@ -1228,8 +1241,8 @@ void Renderer::InitRenderpass()
     render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     render_pass_create_info.pNext = nullptr;
     render_pass_create_info.flags = 0;
-    render_pass_create_info.attachmentCount = attachemnt_desc_count;
-    render_pass_create_info.pAttachments = &attachment_descs[0];
+    render_pass_create_info.attachmentCount = attachment_descs.size();
+    render_pass_create_info.pAttachments = attachment_descs.data();
     render_pass_create_info.subpassCount = 1;
     render_pass_create_info.pSubpasses = &subpass;
     render_pass_create_info.dependencyCount = 1;
