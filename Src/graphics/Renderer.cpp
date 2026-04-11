@@ -23,9 +23,6 @@
 #include <SDL2/SDL_vulkan.h>
 #include <glm/gtc/type_ptr.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb/stb_image.h>
-
 namespace Utils
 {
 
