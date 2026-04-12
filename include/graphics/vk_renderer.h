@@ -11,7 +11,7 @@
 #include <Volk/volk.h>
 #include <vector>
 #include <SDL3/SDL.h>
-#include <math.h>
+#include <glm/glm.hpp>
 
 class Math
 {
@@ -26,6 +26,14 @@ public:
     {
         return (size + alignment - 1) & ~(alignment - 1);
     }
+};
+
+struct BatchCpu
+{
+    std::vector<glm::vec3> position;
+    std::vector<glm::vec3> normals;
+    std::vector<glm::vec4> color;
+    std::vector<uint32_t> indices;
 };
 
 class Renderer

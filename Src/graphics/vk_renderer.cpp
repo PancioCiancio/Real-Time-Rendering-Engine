@@ -13,6 +13,8 @@
 #include <array>
 #include <cstring>
 
+#include "MeshLoader.h"
+
 void Renderer::Load(SDL_Window *window)
 {
     volkInitialize();
@@ -802,40 +804,6 @@ void Renderer::CreatePipeline()
     graphics_pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
     graphics_pipeline_create_info.basePipelineIndex = -1;
 
-    // VkPipelineRasterizationStateCreateInfo pipeline_wireframe_create_info = {};
-    // pipeline_wireframe_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    // pipeline_wireframe_create_info.flags = 0;
-    // pipeline_wireframe_create_info.depthClampEnable = VK_FALSE;
-    // pipeline_wireframe_create_info.rasterizerDiscardEnable = VK_FALSE;
-    // pipeline_wireframe_create_info.polygonMode = VK_POLYGON_MODE_LINE;
-    // pipeline_wireframe_create_info.cullMode = VK_CULL_MODE_BACK_BIT;
-    // pipeline_wireframe_create_info.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    // pipeline_wireframe_create_info.depthBiasEnable = VK_FALSE;
-    // pipeline_wireframe_create_info.depthBiasConstantFactor = 0.0f;
-    // pipeline_wireframe_create_info.depthBiasClamp = 0.0f;
-    // pipeline_wireframe_create_info.depthBiasSlopeFactor = 0.0f;
-    // pipeline_wireframe_create_info.lineWidth = 1.0f;
-
-    // VkGraphicsPipelineCreateInfo pipelineInfoWireframe = {};
-    // pipelineInfoWireframe.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    // pipelineInfoWireframe.flags = 0;
-    // pipelineInfoWireframe.stageCount = 2;
-    // pipelineInfoWireframe.pStages = shaderStages;
-    // pipelineInfoWireframe.pVertexInputState = &vertexInputInfo;
-    // pipelineInfoWireframe.pInputAssemblyState = &inputAssemblyInfo;
-    // pipelineInfoWireframe.pTessellationState = nullptr;
-    // pipelineInfoWireframe.pViewportState = &viewportInfo;
-    // pipelineInfoWireframe.pRasterizationState = &pipeline_wireframe_create_info;
-    // pipelineInfoWireframe.pMultisampleState = &multisampleInfo;
-    // pipelineInfoWireframe.pDepthStencilState = &depth_stencil_state_create_info;
-    // pipelineInfoWireframe.pColorBlendState = &colorBlendInfo;
-    // pipelineInfoWireframe.pDynamicState = &dynamicStateCreateInfo;
-    // pipelineInfoWireframe.layout = pipelineLayout;
-    // pipelineInfoWireframe.renderPass = renderPass;
-    // pipelineInfoWireframe.subpass = 0;
-    // pipelineInfoWireframe.basePipelineHandle = VK_NULL_HANDLE;
-    // pipelineInfoWireframe.basePipelineIndex = -1;
-
     vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &pipeline_.physical_base_rendering_pipeline);
 
     std::array<VkDescriptorPoolSize, 2> pool_sizes = {};
@@ -910,6 +878,28 @@ void Renderer::CreateBatch()
     // Only the uniform buffer with view and projection matrices are gonna
     // be updated.
 
+    BatchCpu batch_data = {};
+    MeshLoader::Load("../resources/meshes/mega_mike_z.fbx", &batch_data);
+
+    // Cpu alignment
+    std::vector<glm::vec4> default_colors(batch_data.position.size(), glm::vec4(0.36f, 0.36f, 0.6391f, 1.0f));
+    batch_data.color = default_colors;
+
+    VkPhysicalDeviceProperties phys_device_properties = {};
+    vkGetPhysicalDeviceProperties(context_.phys_device, &phys_device_properties);
+    const VkDeviceSize min_alignment = phys_device_properties.limits.minMemoryMapAlignment;
+
+    const VkDeviceSize position_size    = sizeof(glm::vec3) * batch_data.position.size();
+    const VkDeviceSize normal_size      = sizeof(glm::vec3) * batch_data.normals.size();
+    const VkDeviceSize color_size       = sizeof(glm::vec4) * batch_data.color.size();
+
+    const VkDeviceSize position_offset = 0;
+    const VkDeviceSize normal_offset = Math::Align(position_offset + position_size, min_alignment);
+    const VkDeviceSize color_offset = Math::Align(normal_offset + normal_size, min_alignment);
+
+    const VkDeviceSize vertex_buffer_size = color_offset + color_size;
+
+
     // Ssbo
     VkBufferCreateInfo ssbo_buffer_create_info = {};
     ssbo_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -958,8 +948,8 @@ void Renderer::CreateBatch()
     VkMemoryAllocateInfo indirect_draw_mem_alloc_info = {};
     indirect_draw_mem_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     indirect_draw_mem_alloc_info.pNext = nullptr;
-    indirect_draw_mem_alloc_info.allocationSize = ssbo_mem_requirements.size;
-    indirect_draw_mem_alloc_info.memoryTypeIndex = mem_type;
+    indirect_draw_mem_alloc_info.allocationSize = indirect_draw_mem_requirements.size;
+    indirect_draw_mem_alloc_info.memoryTypeIndex = indirect_draw_mem_type;
 
     vkAllocateMemory(context_.device, &indirect_draw_mem_alloc_info, nullptr, &scene_.indirect_draw_mem);
     vkBindBufferMemory(context_.device, scene_.indirect_draw_buffer, scene_.indirect_draw_mem, 0);
@@ -984,7 +974,7 @@ void Renderer::CreateBatch()
     VkBufferCreateInfo vert_stage_buff_create_info = {};
     vert_stage_buff_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     vert_stage_buff_create_info.flags = 0;
-    vert_stage_buff_create_info.size = 0;          // @todo: align position, normal, color of the loaded model.
+    vert_stage_buff_create_info.size = vertex_buffer_size;          // @todo: align position, normal, color of the loaded model.
     vert_stage_buff_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
     vkCreateBuffer(context_.device, &vert_stage_buff_create_info, nullptr, &vertex_stage_buffer);
@@ -1003,9 +993,12 @@ void Renderer::CreateBatch()
     vkAllocateMemory(context_.device, &vertex_mem_alloc_info, nullptr, &vertex_stage_mem);
     vkBindBufferMemory(context_.device, vertex_stage_buffer, vertex_stage_mem, 0);
 
-    // @todo: define the size of the buffer
     void* vertex_stage_mapped_data = {};
-    vkMapMemory(context_.device, vertex_stage_mem, 0, 0, 0, &vertex_stage_mapped_data);
+    vkMapMemory(context_.device, vertex_stage_mem, 0, vertex_buffer_size, 0, &vertex_stage_mapped_data);
+    char* base_ptr = static_cast<char*>(vertex_stage_mapped_data);
+    std::memcpy(base_ptr + position_offset, batch_data.position.data(), position_size);
+    std::memcpy(base_ptr + normal_offset, batch_data.normals.data(), normal_size);
+    std::memcpy(base_ptr + color_offset, batch_data.color.data(), color_size);
     vkUnmapMemory(context_.device, vertex_stage_mem);
 
 
@@ -1013,9 +1006,8 @@ void Renderer::CreateBatch()
     VkBufferCreateInfo vert_local_buff_create_info = {};
     vert_local_buff_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     vert_local_buff_create_info.flags = 0;
-    vert_local_buff_create_info.size = 0;          // @todo: align position, normal, color of the loaded model.
+    vert_local_buff_create_info.size = vertex_buffer_size;          // @todo: align position, normal, color of the loaded model.
     vert_local_buff_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-
     vkCreateBuffer(context_.device, &vert_local_buff_create_info, nullptr, &scene_.vertex_buffer);
 
     VkMemoryRequirements vertex_local_mem_requirements = {};
@@ -1031,6 +1023,32 @@ void Renderer::CreateBatch()
 
     vkAllocateMemory(context_.device, &vertex_local_mem_alloc_info, nullptr, &scene_.vertex_mem);
     vkBindBufferMemory(context_.device, scene_.vertex_buffer, scene_.vertex_mem, 0);
+
+
+    // Index buffer
+    VkBufferCreateInfo index_buff_create_info = {};
+    index_buff_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    index_buff_create_info.flags = 0;
+    index_buff_create_info.size = batch_data.indices.size();
+    index_buff_create_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    vkCreateBuffer(context_.device, &index_buff_create_info, nullptr, &scene_.index_buffer);
+
+    VkMemoryRequirements index_mem_requirements = {};
+    vkGetBufferMemoryRequirements(context_.device, scene_.index_buffer, &index_mem_requirements);
+    const uint32_t index_mem_type = ChooseHeapFromFlags(index_mem_requirements, index_mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+    VkMemoryAllocateInfo index_mem_alloc_info = {};
+    index_mem_alloc_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    index_mem_alloc_info.pNext = nullptr;
+    index_mem_alloc_info.allocationSize = index_mem_requirements.size;
+    index_mem_alloc_info.memoryTypeIndex = index_mem_type;
+    vkAllocateMemory(context_.device, &index_mem_alloc_info, nullptr, &scene_.index_mem);
+    vkBindBufferMemory(context_.device, scene_.index_buffer, scene_.index_mem, 0);
+
+    void* index_mapped_data = {};
+    vkMapMemory(context_.device, scene_.index_mem, 0, batch_data.indices.size(), 0, &index_mapped_data);
+    std::memcpy(index_mapped_data, batch_data.indices.data(), sizeof(uint32_t) * batch_data.indices.size());
+    vkUnmapMemory(context_.device, scene_.index_mem);
 
 
     // Copy stage buffer into local buffer
