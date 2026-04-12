@@ -13,8 +13,6 @@
 #include <assimp/scene.h> // Output data structure
 #include <stdexcept>
 
-#include "vk_renderer.h"
-
 void MeshLoader::Load(const char *file_path, BatchCpu *batch)
 {
     const aiScene *scene = aiImportFile(

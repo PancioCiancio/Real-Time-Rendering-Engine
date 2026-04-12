@@ -8,7 +8,7 @@
 #ifndef MESH_H
 #define MESH_H
 
-#include "Renderer.h"
+#include "vk_renderer.h"
 
 #include <cstdint>
 #include <vector>
