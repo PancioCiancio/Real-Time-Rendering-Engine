@@ -2,13 +2,7 @@ find_package(Vulkan REQUIRED)
 
 add_library(graphics STATIC
         "MeshLoader.cpp"
-        "Renderer.cpp"
-        vk_physical_device_utils.cpp
-        vk_device_utils.cpp
-        vk_queue_utils.cpp
-        vk_surface_utils.cpp
-        vk_swapchain_utils.cpp
-        vk_memory_utils.cpp)
+        vk_renderer.cpp)
 
 target_include_directories(graphics
         PUBLIC
@@ -27,7 +21,7 @@ if (WIN32)
 endif ()
 # TODO: cover all other platforms.
 
-set_source_files_properties(renderer.cpp PROPERTIES
+set_source_files_properties(vk_renderer.cpp PROPERTIES
         COMPILE_DEFINITIONS VOLK_IMPLEMENTATION)
 
 target_compile_definitions(graphics PRIVATE

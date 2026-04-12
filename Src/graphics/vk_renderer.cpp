@@ -7,22 +7,25 @@
 
 #include "vk_renderer.h"
 
-#include <SDL3/SDL_vulkan.h>
-#include <bits/stl_queue.h>
+#include <SDL2/SDL_vulkan.h>
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/glm.hpp>
 #include <array>
 #include <cstring>
+#include <print>
 
 #include "MeshLoader.h"
+#include "../FileSystem.h"
 
 void Renderer::Load(SDL_Window *window)
 {
     volkInitialize();
 
     CreateInstance();
+    volkLoadInstance(context_.instance);
+
     CreateSurface(window);
     CreateDevice();
-
     volkLoadDevice(context_.device);
 
     vkGetDeviceQueue(context_.device, 0, 0, &context_.graphics_queue);
@@ -33,7 +36,189 @@ void Renderer::Load(SDL_Window *window)
     CreateImages();
     PrepareDepthStencil();
 
+    CreateBatch();
     CreateUbo();
+    CreateRenderPass();
+    CreateFramebuffers();
+    CreatePipeline();
+}
+
+void Renderer::Update(double delta_time)
+{
+    // Camera calculation
+    glm::vec3 camera_pos        = {0.0f, 0.0f, -200.0f};
+    glm::vec3 camera_pos_new    = {0.0f, 0.0f, -200.0f};
+    glm::vec3 camera_front      = {0.0f, 0.0f, 1.0f};
+    glm::vec3 camera_up         = {0.0f, 1.0f, 0.0f};
+
+    constexpr float p = 1.0f / 100.0f;
+    constexpr float t = 0.396f;
+    const float half_time = -t / glm::log2(p);
+
+    const float camera_lerp_alpha = 1.0f - glm::pow(2.0f, -static_cast<float>(delta_time) / half_time);
+    camera_pos = glm::mix(camera_pos, camera_pos_new, camera_lerp_alpha);
+
+
+    // Vulkan wait
+    vkWaitForFences(context_.device, 1, &frame_data_.submit_fences[loop_.frame_index], VK_TRUE, UINT64_MAX);
+    uint32_t next_image = 0u;
+    vkAcquireNextImageKHR(context_.device, swapchain_.swapchain, UINT64_MAX, frame_data_.acquired_image_semaphores[loop_.frame_index], VK_NULL_HANDLE, &next_image);
+    vkResetFences(context_.device, 1, &frame_data_.submit_fences[loop_.frame_index]);
+    vkResetCommandPool(context_.device, frame_data_.cmd_pool[loop_.frame_index], 0);
+
+    glm::mat4 view = glm::lookAt(camera_pos, camera_pos + camera_front, camera_up);
+    glm::mat4 projection = glm::perspective(glm::radians(45.0f), static_cast<float>(swapchain_.extent.width) / static_cast<float>(swapchain_.extent.height), 0.1f, 1000.0f);
+
+    std::memcpy(frame_data_.camera_data[loop_.frame_index].view, glm::value_ptr(view), sizeof(float) * 16);
+    std::memcpy(frame_data_.camera_data[loop_.frame_index].projection, glm::value_ptr(projection), sizeof(float) * 16);
+
+    frame_data_.camera_data[loop_.frame_index].projection[5] *= -1;
+
+    void* ubo_mapped_data = {};
+    vkMapMemory(context_.device, frame_data_.ubo_mem[loop_.frame_index], 0, sizeof(float) * 16 * 2, 0, &ubo_mapped_data);
+    std::memcpy(ubo_mapped_data, &frame_data_.camera_data[loop_.frame_index], sizeof(float) * 16 * 2);
+    vkUnmapMemory(context_.device, frame_data_.ubo_mem[loop_.frame_index]);
+
+    VkCommandBufferBeginInfo cmd_begin_info = {};
+    cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmd_begin_info.flags = 0;
+    cmd_begin_info.pInheritanceInfo = nullptr;
+    vkBeginCommandBuffer(frame_data_.cmd_buffer[loop_.frame_index], &cmd_begin_info);
+
+    vkCmdBindDescriptorSets(frame_data_.cmd_buffer[loop_.frame_index], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.pipeline_layout, 0, 1, &frame_data_.descriptor_sets[loop_.frame_index], 0, nullptr);
+    std::array<VkClearValue, 2> clear_values = {};
+    clear_values[0].color = { .float32 = {0.0f, 0.0f, 0.0f, 1.0f }};
+    clear_values[1].depthStencil = {1.0f, 0};
+
+    VkRenderPassBeginInfo render_pass_begin_info = {};
+    render_pass_begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    render_pass_begin_info.renderPass = pipeline_.render_pass;
+    render_pass_begin_info.framebuffer = swapchain_.framebuffers[next_image];
+    render_pass_begin_info.renderArea.offset = {0, 0};
+    render_pass_begin_info.renderArea.extent = swapchain_.extent;
+    render_pass_begin_info.clearValueCount = clear_values.size();
+    render_pass_begin_info.pClearValues = clear_values.data();
+    vkCmdBeginRenderPass(frame_data_.cmd_buffer[loop_.frame_index], &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBindPipeline(frame_data_.cmd_buffer[loop_.frame_index], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.physical_base_rendering_pipeline);
+
+    VkViewport viewport = {};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(swapchain_.extent.width);
+    viewport.height = static_cast<float>(swapchain_.extent.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(frame_data_.cmd_buffer[loop_.frame_index], 0, 1, &viewport);
+
+    VkRect2D scissor = {};
+    scissor.offset = {0, 0};
+    scissor.extent = swapchain_.extent;
+    vkCmdSetScissor(frame_data_.cmd_buffer[loop_.frame_index], 0, 1, &scissor);
+
+    std::array<VkBuffer, 3> buffer_binds = {};
+    buffer_binds[0] = scene_.vertex_buffer;
+    buffer_binds[1] = scene_.vertex_buffer;
+    buffer_binds[2] = scene_.vertex_buffer;
+
+    std::array<VkDeviceSize, 3> buffer_bind_offsets = {};
+    buffer_bind_offsets[0] = scene_.vertex_position_offset;
+    buffer_bind_offsets[1] = scene_.vertex_normal_offset;
+    buffer_bind_offsets[2] = scene_.vertex_color_offset;
+    vkCmdBindVertexBuffers(frame_data_.cmd_buffer[loop_.frame_index], 0, buffer_binds.size(), buffer_binds.data(), buffer_bind_offsets.data());
+    vkCmdBindIndexBuffer(frame_data_.cmd_buffer[loop_.frame_index], scene_.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+
+    vkCmdDrawIndexedIndirect(frame_data_.cmd_buffer[loop_.frame_index], scene_.indirect_draw_buffer, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+    vkCmdEndRenderPass(frame_data_.cmd_buffer[loop_.frame_index]);
+    vkEndCommandBuffer(frame_data_.cmd_buffer[loop_.frame_index]);
+
+    std::array<VkSemaphore, 1> wait_semaphores = {};
+    wait_semaphores[0] = frame_data_.acquired_image_semaphores[loop_.frame_index];
+
+    std::array<VkPipelineStageFlags, 1> wait_stages = {};
+    wait_stages[0] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+    std::array<VkSemaphore, 1> signal_semaphores = {};
+    signal_semaphores[0] = swapchain_.renderer_finished_semaphores[next_image];
+
+    VkSubmitInfo submit_info = {};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.waitSemaphoreCount = wait_semaphores.size();
+    submit_info.pWaitSemaphores = wait_semaphores.data();
+    submit_info.pWaitDstStageMask = wait_stages.data();
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &frame_data_.cmd_buffer[loop_.frame_index];
+    submit_info.signalSemaphoreCount = signal_semaphores.size();
+    submit_info.pSignalSemaphores = signal_semaphores.data();
+    vkQueueSubmit(context_.graphics_queue, 1, &submit_info, frame_data_.submit_fences[loop_.frame_index]);
+
+    VkResult result = {};
+    VkPresentInfoKHR present_info = {};
+    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &swapchain_.renderer_finished_semaphores[next_image];
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = &swapchain_.swapchain;
+    present_info.pImageIndices = &next_image;
+    present_info.pResults = &result;
+    vkQueuePresentKHR(context_.graphics_queue, &present_info);
+
+    loop_.frame_index = (loop_.frame_index + 1) % kMaxFifCount;
+}
+
+void Renderer::Unload()
+{
+    vkDeviceWaitIdle(context_.device);
+
+    vkFreeMemory(context_.device, scene_.vertex_mem, nullptr);
+    vkFreeMemory(context_.device, scene_.index_mem, nullptr);
+    vkFreeMemory(context_.device, scene_.indirect_draw_mem, nullptr);
+
+    vkDestroyBuffer(context_.device, scene_.vertex_buffer, nullptr);
+    vkDestroyBuffer(context_.device, scene_.index_buffer, nullptr);
+    vkDestroyBuffer(context_.device, scene_.indirect_draw_buffer, nullptr);
+
+    vkDestroyPipeline(context_.device, pipeline_.physical_base_rendering_pipeline, nullptr);
+    vkDestroyPipelineLayout(context_.device, pipeline_.pipeline_layout, nullptr);
+    vkDestroyDescriptorPool(context_.device, pipeline_.descriptor_pool, nullptr);
+    vkDestroyDescriptorSetLayout(context_.device, pipeline_.descriptor_set_layout, nullptr);
+    vkDestroyRenderPass(context_.device, pipeline_.render_pass, nullptr);
+
+    for (size_t i = 0; i < kMaxFifCount; i++)
+    {
+        vkFreeMemory(context_.device, frame_data_.ubo_mem[i], nullptr);
+        vkFreeMemory(context_.device, frame_data_.ssbo_mem[i], nullptr);
+
+        vkDestroyBuffer(context_.device, frame_data_.ubo_buffer[i], nullptr);
+        vkDestroyBuffer(context_.device, frame_data_.ssbo_buffer[i], nullptr);
+
+        vkDestroySemaphore(context_.device, frame_data_.acquired_image_semaphores[i], nullptr);
+        vkDestroyFence(context_.device, frame_data_.submit_fences[i], nullptr);
+        vkDestroyCommandPool(context_.device, frame_data_.cmd_pool[i], nullptr);
+    }
+
+    vkFreeMemory(context_.device, swapchain_.depth_stencil_mem, nullptr);
+    vkFreeMemory(context_.device, swapchain_.sample_color_mem, nullptr);
+
+    vkDestroyImageView(context_.device, swapchain_.depth_stencil_image_view, nullptr);
+    vkDestroyImageView(context_.device, swapchain_.sample_color_image_view, nullptr);
+
+    vkDestroyImage(context_.device, swapchain_.depth_stencil_image, nullptr);
+    vkDestroyImage(context_.device, swapchain_.sample_color_image, nullptr);
+
+    for (size_t i = 0; i < swapchain_.images.size(); i++)
+    {
+        vkDestroyFramebuffer(context_.device, swapchain_.framebuffers[i], nullptr);
+        vkDestroyImageView(context_.device, swapchain_.image_views[i], nullptr);
+
+        vkDestroySemaphore(context_.device, swapchain_.renderer_finished_semaphores[i], nullptr);
+    }
+
+    vkDestroySwapchainKHR(context_.device, swapchain_.swapchain, nullptr);
+
+    vkDestroyDevice(context_.device, nullptr);
+    vkDestroySurfaceKHR(context_.instance, context_.surface, nullptr);
+    // vkDestroyDebugUtilsMessengerEXT(context_.instance, context_.debug_messenger, nullptr);
+    vkDestroyInstance(context_.instance, nullptr);
 }
 
 void Renderer::CreateInstance()
@@ -56,19 +241,21 @@ void Renderer::CreateInstance()
 
     VkInstanceCreateInfo create_info = {};
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    #ifdef _DEBUG
-    create_info.pNext = &DEBUG_UTILS_MESSENGER_CREATE_INFO;
-    #endif
+    // #ifdef _DEBUG
+    // create_info.pNext = &DEBUG_UTILS_MESSENGER_CREATE_INFO;
+    // #endif
     create_info.pApplicationInfo = &app_info;
     create_info.enabledLayerCount = static_cast<uint32_t>(std::size(layers));
     create_info.ppEnabledLayerNames = layers.data();
     create_info.enabledExtensionCount = static_cast<uint32_t>(std::size(extensions));
     create_info.ppEnabledExtensionNames = extensions.data();
+
+    vkCreateInstance(&create_info, nullptr, &context_.instance);
 }
 
 void Renderer::CreateSurface(SDL_Window *window)
 {
-    SDL_Vulkan_CreateSurface(window, context_.instance, nullptr, &context_.surface);
+    SDL_Vulkan_CreateSurface(window, context_.instance, &context_.surface);
 }
 
 void Renderer::CreateDevice()
@@ -90,10 +277,19 @@ void Renderer::CreateDevice()
     uint32_t phys_device_count = 0;
     vkEnumeratePhysicalDevices(context_.instance, &phys_device_count, nullptr);
 
-    std::array<VkPhysicalDevice, 4> phys_devices = {};  // We can list up to four physical devices.
+    std::array<VkPhysicalDevice, 2> phys_devices = {};  // We can list up to four physical devices.
     vkEnumeratePhysicalDevices(context_.instance, &phys_device_count, phys_devices.data());
 
     context_.phys_device = phys_devices[0]; // Using vulkan caps viewer, we know we are looking to the first gpu.
+
+    VkPhysicalDeviceProperties phys_device_properties = {};
+    vkGetPhysicalDeviceProperties(context_.phys_device, &phys_device_properties);
+    std::println("VK: {}", phys_device_properties.deviceName);
+
+    uint32_t queue_family_count = {};
+    vkGetPhysicalDeviceQueueFamilyProperties(context_.phys_device, &queue_family_count, 0);
+    std::vector<VkQueueFamilyProperties> queue_family_properties(queue_family_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(context_.phys_device, &queue_family_count, queue_family_properties.data());
 
     constexpr std::array<float, 1> priorities = { 1.0f };
     std::array<VkDeviceQueueCreateInfo, 2> queue_create_info = {};
@@ -150,9 +346,9 @@ void Renderer::CreateSwapchain()
     // Init images
     uint32_t swapchain_image_count = {};
     vkGetSwapchainImagesKHR(context_.device, swapchain_.swapchain, &swapchain_image_count, nullptr);
-    swapchain_.images.reserve(swapchain_image_count);
-    swapchain_.image_views.reserve(swapchain_image_count);
-    swapchain_.renderer_finished_semaphores.reserve(swapchain_image_count);
+    swapchain_.images.resize(swapchain_image_count);
+    swapchain_.image_views.resize(swapchain_image_count);
+    swapchain_.renderer_finished_semaphores.resize(swapchain_image_count);
     vkGetSwapchainImagesKHR(context_.device, swapchain_.swapchain, &swapchain_image_count, swapchain_.images.data());
 
     // Init image views
@@ -176,22 +372,16 @@ void Renderer::CreateSwapchain()
         image_view_create_info.format = swapchain_.surface_format.format;
         image_view_create_info.components = { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
         image_view_create_info.subresourceRange = subresource_range;
-        vkCreateImageView(context_.device, &image_view_create_info, nullptr, &image_view);
-
-        swapchain_.image_views.push_back(image_view);
+        vkCreateImageView(context_.device, &image_view_create_info, nullptr, &swapchain_.image_views[i]);
     }
 
     // Create synchronization objects
     for (uint32_t i = 0; i < create_info.minImageCount; i++)
     {
-        VkSemaphore semaphore = {};
-
         VkSemaphoreCreateInfo semaphore_create_info = {};
         semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         semaphore_create_info.flags = 0;
-        vkCreateSemaphore(context_.device, &semaphore_create_info, nullptr, &semaphore);
-
-        swapchain_.renderer_finished_semaphores.push_back(semaphore);
+        vkCreateSemaphore(context_.device, &semaphore_create_info, nullptr, &swapchain_.renderer_finished_semaphores[i]);
     }
 }
 
@@ -200,7 +390,7 @@ void Renderer::CreateFif()
     VkCommandPoolCreateInfo cmd_pool_create_info = {};
     cmd_pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     cmd_pool_create_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    cmd_pool_create_info.queueFamilyIndex = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    cmd_pool_create_info.queueFamilyIndex = context_.graphics_queue_family_index;
 
     for (size_t i = 0; i < kMaxFifCount; i++)
     {
@@ -348,10 +538,11 @@ void Renderer::CreateImages()
 
     for (size_t i = 0; i < images.size(); i++)
     {
-        vkCreateImage(context_.device, &image_create_infos[0], nullptr, images[0]);
+        vkCreateImage(context_.device, &image_create_infos[i], nullptr, images[i]);
+        image_view_create_infos[i].image = *images[i];
 
         VkMemoryRequirements mem_requirements = {};
-        vkGetImageMemoryRequirements(context_.device, *images[0], &mem_requirements);
+        vkGetImageMemoryRequirements(context_.device, *images[i], &mem_requirements);
 
         const uint32_t memory_type = ChooseHeapFromFlags(
             mem_requirements,
@@ -364,9 +555,9 @@ void Renderer::CreateImages()
         allocate_info.allocationSize = mem_requirements.size;
         allocate_info.memoryTypeIndex = memory_type;
 
-        vkAllocateMemory(context_.device, &allocate_info, nullptr, mems[0]);
-        vkBindImageMemory(context_.device, *images[0], *mems[0], 0);
-        vkCreateImageView(context_.device, &image_view_create_infos[0], nullptr, image_views[0]);
+        vkAllocateMemory(context_.device, &allocate_info, nullptr, mems[i]);
+        vkBindImageMemory(context_.device, *images[i], *mems[i], 0);
+        vkCreateImageView(context_.device, &image_view_create_infos[i], nullptr, image_views[i]);
     }
 }
 
@@ -424,11 +615,10 @@ void Renderer::CreateUbo()
         buffer_create_info.size = buffer_size;
         buffer_create_info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 
-        VkBuffer buffer = {};
         vkCreateBuffer(context_.device, &buffer_create_info, nullptr, &frame_data_.ubo_buffer[i]);
 
         VkMemoryRequirements mem_requirements = {};
-        vkGetBufferMemoryRequirements(context_.device, buffer, &mem_requirements);
+        vkGetBufferMemoryRequirements(context_.device, frame_data_.ubo_buffer[i], &mem_requirements);
 
         const uint32_t mem_type = ChooseHeapFromFlags(mem_requirements, mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
@@ -536,7 +726,7 @@ void Renderer::CreateRenderPass()
 
 void Renderer::CreateFramebuffers()
 {
-    swapchain_.framebuffers.reserve(swapchain_.images.size());
+    swapchain_.framebuffers.resize(swapchain_.images.size());
 
     for (size_t i = 0; i < swapchain_.images.size(); i++)
     {
@@ -558,16 +748,14 @@ void Renderer::CreateFramebuffers()
             .layers = 1,
         };
 
-        VkFramebuffer framebuffer = {};
-        vkCreateFramebuffer(context_.device, &framebuffer_create_info, nullptr, &framebuffer);
-        swapchain_.framebuffers.push_back(framebuffer);
+        vkCreateFramebuffer(context_.device, &framebuffer_create_info, nullptr, &swapchain_.framebuffers[i]);
     }
 }
 
 void Renderer::CreatePipeline()
 {
-    std::span<const char*> vert_shader_code = {};
-    std::span<const char*> frag_shader_code = {};
+    std::vector<char> vert_shader_code = FileSystem::ReadFile("../resources/shaders/indirect_vert.spv");
+    std::vector<char> frag_shader_code = FileSystem::ReadFile("../resources/shaders/frag.spv");
 
     std::array<VkShaderModule, 2> shader_modules = {};
 
@@ -839,12 +1027,12 @@ void Renderer::CreatePipeline()
         VkDescriptorBufferInfo ubo_info = {};
         ubo_info.buffer = frame_data_.ubo_buffer[i];
         ubo_info.offset = 0;
-        ubo_info.range = sizeof(frame_data_);
+        ubo_info.range = sizeof(float) * 16 * 2;
 
         VkDescriptorBufferInfo ssbo_info = {};
-        ssbo_info.buffer = frame_data_.ssbo_buffer[i];
+        ssbo_info.buffer = frame_data_.ssbo_buffer[0];
         ssbo_info.offset = 0;
-        ssbo_info.range = sizeof(float) * 16 * 9;
+        ssbo_info.range = sizeof(float) * 16;
 
         std::array<VkWriteDescriptorSet, 2> descriptor_sets = {};
         // Ubo
@@ -882,7 +1070,7 @@ void Renderer::CreateBatch()
     MeshLoader::Load("../resources/meshes/mega_mike_z.fbx", &batch_data);
 
     // Cpu alignment
-    std::vector<glm::vec4> default_colors(batch_data.position.size(), glm::vec4(0.36f, 0.36f, 0.6391f, 1.0f));
+    std::vector<glm::vec4> default_colors(batch_data.position.size(), glm::vec4(0.49f, 0.36f, 0.36f, 1.0f));
     batch_data.color = default_colors;
 
     VkPhysicalDeviceProperties phys_device_properties = {};
@@ -893,11 +1081,11 @@ void Renderer::CreateBatch()
     const VkDeviceSize normal_size      = sizeof(glm::vec3) * batch_data.normals.size();
     const VkDeviceSize color_size       = sizeof(glm::vec4) * batch_data.color.size();
 
-    const VkDeviceSize position_offset = 0;
-    const VkDeviceSize normal_offset = Math::Align(position_offset + position_size, min_alignment);
-    const VkDeviceSize color_offset = Math::Align(normal_offset + normal_size, min_alignment);
+    scene_.vertex_position_offset = 0;
+    scene_.vertex_normal_offset = Math::Align(scene_.vertex_position_offset + position_size, min_alignment);
+    scene_.vertex_color_offset = Math::Align(scene_.vertex_normal_offset + normal_size, min_alignment);
 
-    const VkDeviceSize vertex_buffer_size = color_offset + color_size;
+    const VkDeviceSize vertex_buffer_size = scene_.vertex_color_offset + color_size;
 
 
     // Ssbo
@@ -924,7 +1112,7 @@ void Renderer::CreateBatch()
     vkBindBufferMemory(context_.device, frame_data_.ssbo_buffer[0], frame_data_.ssbo_mem[0], 0);
 
     void* ssbo_mapped_data = {};
-    auto model_mat = glm::mat4(1.0f);
+    auto model_mat = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -80.0f, 100.0f)) * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
     vkMapMemory(context_.device, frame_data_.ssbo_mem[0], 0, sizeof(float) * 16, 0, &ssbo_mapped_data);
     std::memcpy(ssbo_mapped_data, &model_mat, sizeof(float) * 16);
@@ -955,7 +1143,7 @@ void Renderer::CreateBatch()
     vkBindBufferMemory(context_.device, scene_.indirect_draw_buffer, scene_.indirect_draw_mem, 0);
 
     VkDrawIndexedIndirectCommand indirect_draw_cmd = {};
-    indirect_draw_cmd.indexCount = {};  // @todo: read mesh indices
+    indirect_draw_cmd.indexCount = batch_data.indices.size();
     indirect_draw_cmd.instanceCount = 1;
     indirect_draw_cmd.firstIndex = 0;
     indirect_draw_cmd.vertexOffset = 0;
@@ -974,7 +1162,7 @@ void Renderer::CreateBatch()
     VkBufferCreateInfo vert_stage_buff_create_info = {};
     vert_stage_buff_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     vert_stage_buff_create_info.flags = 0;
-    vert_stage_buff_create_info.size = vertex_buffer_size;          // @todo: align position, normal, color of the loaded model.
+    vert_stage_buff_create_info.size = Math::Align(vertex_buffer_size, min_alignment);          // @todo: align position, normal, color of the loaded model.
     vert_stage_buff_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
     vkCreateBuffer(context_.device, &vert_stage_buff_create_info, nullptr, &vertex_stage_buffer);
@@ -996,9 +1184,9 @@ void Renderer::CreateBatch()
     void* vertex_stage_mapped_data = {};
     vkMapMemory(context_.device, vertex_stage_mem, 0, vertex_buffer_size, 0, &vertex_stage_mapped_data);
     char* base_ptr = static_cast<char*>(vertex_stage_mapped_data);
-    std::memcpy(base_ptr + position_offset, batch_data.position.data(), position_size);
-    std::memcpy(base_ptr + normal_offset, batch_data.normals.data(), normal_size);
-    std::memcpy(base_ptr + color_offset, batch_data.color.data(), color_size);
+    std::memcpy(base_ptr + scene_.vertex_position_offset, batch_data.position.data(), position_size);
+    std::memcpy(base_ptr + scene_.vertex_normal_offset, batch_data.normals.data(), normal_size);
+    std::memcpy(base_ptr + scene_.vertex_color_offset, batch_data.color.data(), color_size);
     vkUnmapMemory(context_.device, vertex_stage_mem);
 
 
@@ -1006,7 +1194,7 @@ void Renderer::CreateBatch()
     VkBufferCreateInfo vert_local_buff_create_info = {};
     vert_local_buff_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     vert_local_buff_create_info.flags = 0;
-    vert_local_buff_create_info.size = vertex_buffer_size;          // @todo: align position, normal, color of the loaded model.
+    vert_local_buff_create_info.size = Math::Align(vertex_buffer_size, min_alignment);
     vert_local_buff_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     vkCreateBuffer(context_.device, &vert_local_buff_create_info, nullptr, &scene_.vertex_buffer);
 
@@ -1016,10 +1204,10 @@ void Renderer::CreateBatch()
     const uint32_t vertex_local_mem_type = ChooseHeapFromFlags(vertex_local_mem_requirements, vertex_local_mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     VkMemoryAllocateInfo vertex_local_mem_alloc_info = {};
-    vertex_mem_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    vertex_mem_alloc_info.pNext = nullptr;
-    vertex_mem_alloc_info.allocationSize = vertex_local_mem_requirements.size;
-    vertex_mem_alloc_info.memoryTypeIndex = vertex_local_mem_type;
+    vertex_local_mem_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    vertex_local_mem_alloc_info.pNext = nullptr;
+    vertex_local_mem_alloc_info.allocationSize = vertex_local_mem_requirements.size;
+    vertex_local_mem_alloc_info.memoryTypeIndex = vertex_local_mem_type;
 
     vkAllocateMemory(context_.device, &vertex_local_mem_alloc_info, nullptr, &scene_.vertex_mem);
     vkBindBufferMemory(context_.device, scene_.vertex_buffer, scene_.vertex_mem, 0);
@@ -1029,7 +1217,7 @@ void Renderer::CreateBatch()
     VkBufferCreateInfo index_buff_create_info = {};
     index_buff_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     index_buff_create_info.flags = 0;
-    index_buff_create_info.size = batch_data.indices.size();
+    index_buff_create_info.size = batch_data.indices.size() * sizeof(uint32_t);
     index_buff_create_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     vkCreateBuffer(context_.device, &index_buff_create_info, nullptr, &scene_.index_buffer);
 
@@ -1038,7 +1226,7 @@ void Renderer::CreateBatch()
     const uint32_t index_mem_type = ChooseHeapFromFlags(index_mem_requirements, index_mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
     VkMemoryAllocateInfo index_mem_alloc_info = {};
-    index_mem_alloc_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    index_mem_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     index_mem_alloc_info.pNext = nullptr;
     index_mem_alloc_info.allocationSize = index_mem_requirements.size;
     index_mem_alloc_info.memoryTypeIndex = index_mem_type;
@@ -1059,7 +1247,7 @@ void Renderer::CreateBatch()
 
     std::array<VkBufferMemoryBarrier, 2> copy_buffer_mem_barrier = {};
     copy_buffer_mem_barrier[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    copy_buffer_mem_barrier[0].size = {}; // vertex buffer size
+    copy_buffer_mem_barrier[0].size = Math::Align(vertex_buffer_size, min_alignment);;
     copy_buffer_mem_barrier[0].buffer = scene_.vertex_buffer;
     copy_buffer_mem_barrier[0].srcAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
     copy_buffer_mem_barrier[0].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -1069,14 +1257,26 @@ void Renderer::CreateBatch()
     VkBufferCopy copy_buffer = {};
     copy_buffer.srcOffset = 0;
     copy_buffer.dstOffset = 0;
-    copy_buffer.size = {}; // vertex buffer size
+    copy_buffer.size = Math::Align(vertex_buffer_size, min_alignment);;
     vkCmdCopyBuffer(frame_data_.cmd_buffer[0], vertex_stage_buffer, scene_.vertex_buffer, 1, &copy_buffer);
 
     copy_buffer_mem_barrier[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    copy_buffer_mem_barrier[1].size = {}; // vertex buffer size
+    copy_buffer_mem_barrier[1].size = Math::Align(vertex_buffer_size, min_alignment);;
     copy_buffer_mem_barrier[1].buffer = scene_.vertex_buffer;
     copy_buffer_mem_barrier[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     copy_buffer_mem_barrier[1].dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
     copy_buffer_mem_barrier[1].offset = 0;
     vkCmdPipelineBarrier(frame_data_.cmd_buffer[0], VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, nullptr, 1, &copy_buffer_mem_barrier[1], 0, nullptr);
+    vkEndCommandBuffer(frame_data_.cmd_buffer[0]);
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &frame_data_.cmd_buffer[0];
+
+    vkQueueSubmit(context_.graphics_queue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(context_.graphics_queue);
+
+    vkFreeMemory(context_.device, vertex_stage_mem, nullptr);
+    vkDestroyBuffer(context_.device, vertex_stage_buffer, nullptr);
 }

@@ -17,8 +17,6 @@
 #include <glm/glm.hpp>
 
 
-namespace Renderer
-{
 class BatchCpu;
 
 class MeshLoader
@@ -60,5 +58,4 @@ private:
         const aiScene *scene,
         std::vector<uint32_t> &indices);
 };
-}
 #endif //MESH_H

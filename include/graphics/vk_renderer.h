@@ -10,7 +10,7 @@
 
 #include <Volk/volk.h>
 #include <vector>
-#include <SDL3/SDL.h>
+#include <SDL2/SDL.h>
 #include <glm/glm.hpp>
 
 class Math
@@ -19,7 +19,7 @@ public:
     template<typename R>
     static R ToClosestPowerOfTwo(const double x)
     {
-        static_cast<R>(pow(2.0f, ceil(log2(x))));
+        return static_cast<R>(pow(2.0f, ceil(log2(x))));
     }
 
     static size_t Align(size_t size, size_t alignment)
@@ -40,6 +40,8 @@ class Renderer
 {
 public:
     void Load(SDL_Window* window);
+    void Update(double delta_time);
+    void Unload();
 
 private:
     void CreateInstance();
@@ -60,9 +62,9 @@ private:
     struct
     {
         VkInstance instance                         = {};
-        #ifdef _DEBUG
+        // #ifdef _DEBUG
         VkDebugUtilsMessengerEXT debug_messenger    = {};
-        #endif
+        // #endif
         VkSurfaceKHR surface                        = {};
         VkPhysicalDevice phys_device                = {};
         VkDevice device                             = {};
@@ -101,7 +103,7 @@ private:
         {
             float view[16]          = {};   // 4x4 Matrix
             float projection[16]    = {};   // 4x4 Matrix
-        } camera_data;
+        } camera_data[kMaxFifCount];
 
         // Uniform buffer
         VkBuffer ubo_buffer[kMaxFifCount]                   = {};
@@ -134,12 +136,21 @@ private:
         VkBuffer vertex_buffer = {};
         VkDeviceMemory vertex_mem = {};
 
+        VkDeviceSize vertex_position_offset = {};
+        VkDeviceSize vertex_normal_offset = {};
+        VkDeviceSize vertex_color_offset = {};
+
         VkBuffer index_buffer = {};
         VkDeviceMemory index_mem = {};
 
         VkBuffer indirect_draw_buffer = {};
         VkDeviceMemory indirect_draw_mem = {};
     } scene_;
+
+    struct
+    {
+        uint32_t frame_index = {};
+    } loop_;
 };
 
 #endif //ORDA_VK_RENDERER_H

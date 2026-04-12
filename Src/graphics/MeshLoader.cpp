@@ -13,10 +13,8 @@
 #include <assimp/scene.h> // Output data structure
 #include <stdexcept>
 
-#include "Renderer.h"
+#include "vk_renderer.h"
 
-namespace Renderer
-{
 void MeshLoader::Load(const char *file_path, BatchCpu *batch)
 {
     const aiScene *scene = aiImportFile(
@@ -180,5 +178,4 @@ void MeshLoader::QueryIndices(
             indices.push_back(face.mIndices[2]);
         }
     }
-}
 }
