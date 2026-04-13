@@ -13,6 +13,9 @@
 #include <array>
 #include <cstring>
 #include <print>
+#include <unordered_set>
+
+// #include <stb/stb_image.h>
 
 #include "MeshLoader.h"
 #include "../FileSystem.h"
@@ -272,19 +275,59 @@ void Renderer::CreateDevice()
     std::array<const char*, 3> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         "VK_KHR_dynamic_rendering",         // Allow to bind render pass and framebuffer dynamically.
-        "VK_KHR_shader_draw_parameters"};    // Provides access to three additional built-in shader variables in Vulkan (Indirect drawing command)
+        "VK_KHR_shader_draw_parameters"};   // Provides access to three additional built-in shader variables in Vulkan (Indirect drawing command)
 
     uint32_t phys_device_count = 0;
     vkEnumeratePhysicalDevices(context_.instance, &phys_device_count, nullptr);
 
-    std::array<VkPhysicalDevice, 2> phys_devices = {};  // We can list up to four physical devices.
+    std::vector<VkPhysicalDevice> phys_devices(phys_device_count);  // We can list up to four physical devices.
     vkEnumeratePhysicalDevices(context_.instance, &phys_device_count, phys_devices.data());
 
-    context_.phys_device = phys_devices[0]; // Using vulkan caps viewer, we know we are looking to the first gpu.
+    for (auto phys_device : phys_devices)
+    {
+        VkPhysicalDeviceFeatures phys_device_features = {};
+        vkGetPhysicalDeviceFeatures(phys_device, &phys_device_features);
 
-    VkPhysicalDeviceProperties phys_device_properties = {};
-    vkGetPhysicalDeviceProperties(context_.phys_device, &phys_device_properties);
-    std::println("VK: {}", phys_device_properties.deviceName);
+        uint32_t phys_device_ext_count = {};
+        vkEnumerateDeviceExtensionProperties(phys_device, nullptr, &phys_device_ext_count, nullptr);
+
+        std::vector<VkExtensionProperties> phys_device_exts(phys_device_ext_count);
+        vkEnumerateDeviceExtensionProperties(phys_device, nullptr, &phys_device_ext_count, phys_device_exts.data());
+
+        std::unordered_set<std::string> exts_supported = {};
+        for (const auto& ext : phys_device_exts)
+        {
+            exts_supported.insert(ext.extensionName);
+        }
+
+        bool are_exts_supported = true;
+        for (const char* ext : device_extensions)
+        {
+            if (!exts_supported.contains(ext))
+            {
+                are_exts_supported = false;
+            }
+        }
+
+        VkPhysicalDeviceProperties phys_device_properties = {};
+        vkGetPhysicalDeviceProperties(phys_device, &phys_device_properties);
+
+        const bool is_suitable =
+            required_features.geometryShader == phys_device_features.geometryShader &&
+            required_features.tessellationShader == phys_device_features.tessellationShader &&
+            required_features.multiDrawIndirect == phys_device_features.multiDrawIndirect &&
+            required_features.fillModeNonSolid == phys_device_features.fillModeNonSolid &&
+            required_features.sampleRateShading == phys_device_features.sampleRateShading &&
+            required_features.samplerAnisotropy == phys_device_features.samplerAnisotropy;
+
+        if (are_exts_supported && is_suitable && phys_device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+        {
+            context_.phys_device = phys_device;
+            std::println("VK: {}", phys_device_properties.deviceName);
+        }
+
+        // Elsewhere the context_.phys_device will be VK_NULL_HANDLE and the application will crash.
+    }
 
     uint32_t queue_family_count = {};
     vkGetPhysicalDeviceQueueFamilyProperties(context_.phys_device, &queue_family_count, 0);
