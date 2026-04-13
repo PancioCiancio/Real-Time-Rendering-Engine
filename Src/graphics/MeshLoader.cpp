@@ -19,7 +19,7 @@ void MeshLoader::Load(const char *file_path, BatchCpu *batch)
         file_path,
         aiProcess_Triangulate |
         aiProcess_GenNormals |
-        // aiProcess_GenUVCoords |
+        aiProcess_GenUVCoords |
         aiProcess_JoinIdenticalVertices);
 
     if (!scene)
@@ -84,6 +84,15 @@ void MeshLoader::ProcessMesh(aiMesh *mesh, const aiScene *scene, BatchCpu *batch
         normal.y = transformedNormals.y;
         normal.z = transformedNormals.z;
         batch->normals.push_back(normal);
+
+        // UVs
+        glm::vec2 uv = {0.0f, 0.0f};
+        if (mesh->mTextureCoords[0])
+        {
+            uv.x = mesh->mTextureCoords[0][i].x;
+            uv.y = 1.0f - mesh->mTextureCoords[0][i].y;     // Invert the y coordinates
+        }
+        batch->uvs.push_back(uv);
     }
 
 

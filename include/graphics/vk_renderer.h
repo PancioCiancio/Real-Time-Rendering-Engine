@@ -32,7 +32,7 @@ struct BatchCpu
 {
     std::vector<glm::vec3> position;
     std::vector<glm::vec3> normals;
-    std::vector<glm::vec4> color;
+    std::vector<glm::vec2> uvs;
     std::vector<uint32_t> indices;
 };
 
@@ -44,6 +44,7 @@ public:
     void Unload();
 
 private:
+    void LoadTextures();
     void CreateInstance();
     void CreateSurface(SDL_Window* window);
     void CreateDevice();
@@ -149,6 +150,13 @@ private:
         VkPipeline physical_base_rendering_pipeline         = {};
     } pipeline_;
 
+    struct SsboObjectData
+    {
+        uint32_t texture_id     = {};
+        uint32_t _pad[3]        = {};
+        glm::mat4 model_matrix  = {};
+    };
+
     // Scene has:
     // - vertex pack together different geometries { position, normal, color, ... }
     // - store the offset for each vertex property. They will be used for bind commands.
@@ -161,13 +169,18 @@ private:
 
         VkDeviceSize vertex_position_offset = {};
         VkDeviceSize vertex_normal_offset   = {};
-        VkDeviceSize vertex_color_offset    = {};
+        VkDeviceSize vertex_uv_offset    = {};
 
         VkBuffer index_buffer               = {};
         VkDeviceMemory index_mem            = {};
 
         VkBuffer indirect_draw_buffer       = {};
         VkDeviceMemory indirect_draw_mem    = {};
+
+        VkImage texture_image               = {};
+        VkImageView texture_image_view      = {};
+        VkDeviceMemory texture_mem          = {};
+        VkSampler texture_sampler           = {};
     } scene_;
 
     struct

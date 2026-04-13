@@ -13,19 +13,25 @@ layout(set = 0, binding = 0) uniform PerFrameData {
     mat4 proj;
 } ubo;
 
+struct ObjectData {
+    uint texture_id;
+    mat4 model_matrix;
+};
+
 layout(std140, set = 0, binding = 1) readonly buffer InstanceData {
-    mat4 modelMatrices[];
+    ObjectData objects[];
 } ssbo;
 
-layout(location = 0) in vec3 positions;
-layout(location = 1) in vec3 normals;
-layout(location = 2) in vec4 colors;
-layout(location = 0) out vec4 fragColor;
+layout(location = 0) in vec3 i_position;
+layout(location = 1) in vec3 i_normal;
+layout(location = 2) in vec2 i_uv;
+
+layout(location = 0) out flat uint o_texture_id;
+layout(location = 1) out vec2 o_uv;
 
 void main() {
-    mat4 model = ssbo.modelMatrices[gl_InstanceIndex];
-
-    gl_Position = ubo.proj * ubo.view * model * vec4(positions, 1.0);
-    fragColor = colors * clamp(dot(normals, positions + vec3(-0.0, 100000.0, 100.0)), 0.1, .6);
-    fragColor.r = fract(gl_InstanceIndex / 10.0);
+    mat4 model = ssbo.objects[gl_InstanceIndex].model_matrix;
+    o_texture_id = ssbo.objects[gl_InstanceIndex].texture_id;
+    o_uv = i_uv;
+    gl_Position = ubo.proj * ubo.view * model * vec4(i_position, 1.0);
 }

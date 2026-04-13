@@ -15,7 +15,8 @@
 #include <print>
 #include <unordered_set>
 
-// #include <stb/stb_image.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
 
 #include "MeshLoader.h"
 #include "../FileSystem.h"
@@ -44,6 +45,8 @@ void Renderer::Load(SDL_Window *window)
     CreateRenderPass();
     CreateFramebuffers();
     CreatePipeline();
+
+    LoadTextures();
 }
 
 void Renderer::Update(double delta_time)
@@ -126,7 +129,7 @@ void Renderer::Update(double delta_time)
     std::array<VkDeviceSize, 3> buffer_bind_offsets = {};
     buffer_bind_offsets[0] = scene_.vertex_position_offset;
     buffer_bind_offsets[1] = scene_.vertex_normal_offset;
-    buffer_bind_offsets[2] = scene_.vertex_color_offset;
+    buffer_bind_offsets[2] = scene_.vertex_uv_offset;
     vkCmdBindVertexBuffers(frame_data_.cmd_buffer[loop_.frame_index], 0, buffer_binds.size(), buffer_binds.data(), buffer_bind_offsets.data());
     vkCmdBindIndexBuffer(frame_data_.cmd_buffer[loop_.frame_index], scene_.index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
@@ -171,6 +174,11 @@ void Renderer::Update(double delta_time)
 void Renderer::Unload()
 {
     vkDeviceWaitIdle(context_.device);
+
+    vkDestroySampler(context_.device, scene_.texture_sampler, nullptr);
+    vkDestroyImageView(context_.device, scene_.texture_image_view, nullptr);
+    vkDestroyImage(context_.device, scene_.texture_image, nullptr);
+    vkFreeMemory(context_.device, scene_.texture_mem, nullptr);
 
     vkFreeMemory(context_.device, scene_.vertex_mem, nullptr);
     vkFreeMemory(context_.device, scene_.index_mem, nullptr);
@@ -222,6 +230,231 @@ void Renderer::Unload()
     vkDestroySurfaceKHR(context_.instance, context_.surface, nullptr);
     // vkDestroyDebugUtilsMessengerEXT(context_.instance, context_.debug_messenger, nullptr);
     vkDestroyInstance(context_.instance, nullptr);
+}
+
+void Renderer::LoadTextures()
+{
+// Load the .pngs
+    int text_width = {};
+    int text_height = {};
+    int text_channels = {};
+    stbi_uc* pixels = stbi_load("../resources/textures/mega_mike_z/T_ZMike_Green_Base_color.png", &text_width, &text_height, &text_channels, STBI_rgb_alpha);
+
+    VkDeviceSize image_size = text_width * text_height * 4;
+
+    // Create staging buffer.
+    VkBuffer staging_buffer = {};
+    VkDeviceMemory staging_mem = {};
+
+    VkBufferCreateInfo stage_buffer_create_info = {};
+    stage_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    stage_buffer_create_info.flags = 0;
+    stage_buffer_create_info.size = image_size; // Match exact image size
+    stage_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+    vkCreateBuffer(context_.device, &stage_buffer_create_info, nullptr, &staging_buffer);
+
+    VkMemoryRequirements stage_buffer_mem_requirements = {};
+    vkGetBufferMemoryRequirements(context_.device, staging_buffer, &stage_buffer_mem_requirements);
+    const uint32_t vertex_mem_type = ChooseHeapFromFlags(stage_buffer_mem_requirements, stage_buffer_mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+    VkMemoryAllocateInfo vertex_mem_alloc_info = {};
+    vertex_mem_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    vertex_mem_alloc_info.pNext = nullptr;
+    vertex_mem_alloc_info.allocationSize = stage_buffer_mem_requirements.size;
+    vertex_mem_alloc_info.memoryTypeIndex = vertex_mem_type;
+
+    vkAllocateMemory(context_.device, &vertex_mem_alloc_info, nullptr, &staging_mem);
+    vkBindBufferMemory(context_.device, staging_buffer, staging_mem, 0);
+
+    // Write the pixels into the staging buffer.
+    void* data = {};
+    vkMapMemory(context_.device, staging_mem, 0, image_size, 0, &data);
+    std::memcpy(data, pixels, image_size);
+    vkUnmapMemory(context_.device, staging_mem);
+
+    // Free the raw image pixel data
+    stbi_image_free(pixels);
+
+    // -----------------------------------------------------------------
+    // 1. Create the Vulkan Image
+    // -----------------------------------------------------------------
+    VkImageCreateInfo image_info = {};
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.extent.width = static_cast<uint32_t>(text_width);
+    image_info.extent.height = static_cast<uint32_t>(text_height);
+    image_info.extent.depth = 1;
+    image_info.mipLevels = 1;
+    image_info.arrayLayers = 1;
+    image_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    vkCreateImage(context_.device, &image_info, nullptr, &scene_.texture_image);
+
+    // -----------------------------------------------------------------
+    // 2. Allocate Image Memory
+    // -----------------------------------------------------------------
+    VkMemoryRequirements mem_requirements = {};
+    vkGetImageMemoryRequirements(context_.device, scene_.texture_image, &mem_requirements);
+
+    const uint32_t image_mem_type = ChooseHeapFromFlags(mem_requirements, mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    VkMemoryAllocateInfo image_alloc_info = {};
+    image_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    image_alloc_info.allocationSize = mem_requirements.size;
+    image_alloc_info.memoryTypeIndex = image_mem_type;
+
+    vkAllocateMemory(context_.device, &image_alloc_info, nullptr, &scene_.texture_mem);
+    vkBindImageMemory(context_.device, scene_.texture_image, scene_.texture_mem, 0);
+
+    // -----------------------------------------------------------------
+    // 3. Record command buffer for layout transitions and copy
+    // -----------------------------------------------------------------
+    VkCommandBufferBeginInfo cmd_begin_info = {};
+    cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(frame_data_.cmd_buffer[0], &cmd_begin_info);
+
+    // Transition Undefined -> Transfer Dst
+    VkImageMemoryBarrier barrier = {};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = scene_.texture_image;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(
+        frame_data_.cmd_buffer[0],
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier
+    );
+
+    // Copy Buffer to Image
+    VkBufferImageCopy region = {};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = { static_cast<uint32_t>(text_width), static_cast<uint32_t>(text_height), 1 };
+
+    vkCmdCopyBufferToImage(
+        frame_data_.cmd_buffer[0],
+        staging_buffer,
+        scene_.texture_image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &region
+    );
+
+    // Transition Transfer Dst -> Shader Read Only
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(
+        frame_data_.cmd_buffer[0],
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &barrier
+    );
+
+    vkEndCommandBuffer(frame_data_.cmd_buffer[0]);
+
+    // Submit and wait (Synchronous upload for boilerplate simplicity)
+    VkSubmitInfo submit_info = {};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &frame_data_.cmd_buffer[0];
+
+    vkQueueSubmit(context_.graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(context_.graphics_queue);
+
+    // -----------------------------------------------------------------
+    // 4. Create Image View
+    // -----------------------------------------------------------------
+    VkImageViewCreateInfo view_info = {};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = scene_.texture_image;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_info.subresourceRange.baseMipLevel = 0;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.baseArrayLayer = 0;
+    view_info.subresourceRange.layerCount = 1;
+
+    vkCreateImageView(context_.device, &view_info, nullptr, &scene_.texture_image_view);
+
+    // -----------------------------------------------------------------
+    // 5. Create Sampler
+    // -----------------------------------------------------------------
+    VkSamplerCreateInfo sampler_info = {};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter = VK_FILTER_LINEAR;
+    sampler_info.minFilter = VK_FILTER_LINEAR;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+    // Quick query for max anisotropy based on your device features
+    VkPhysicalDeviceProperties properties{};
+    vkGetPhysicalDeviceProperties(context_.phys_device, &properties);
+
+    sampler_info.anisotropyEnable = VK_TRUE;
+    sampler_info.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    sampler_info.unnormalizedCoordinates = VK_FALSE;
+    sampler_info.compareEnable = VK_FALSE;
+    sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+    vkCreateSampler(context_.device, &sampler_info, nullptr, &scene_.texture_sampler);
+
+    // -----------------------------------------------------------------
+    // 6. Bindless Descriptor Update
+    // -----------------------------------------------------------------
+    uint32_t texture_index = 0; // In a real system, track this dynamically
+
+    VkDescriptorImageInfo desc_image_info = {};
+    desc_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    desc_image_info.imageView = scene_.texture_image_view;
+    desc_image_info.sampler = scene_.texture_sampler;
+
+    // Loop through your FIF frames to ensure all descriptor sets have the bindless pointer
+    for (size_t i = 0; i < kMaxFifCount; i++)
+    {
+        VkWriteDescriptorSet write_desc = {};
+        write_desc.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write_desc.dstSet = frame_data_.descriptor_sets[i];
+        write_desc.dstBinding = 2; // Assuming bindless array is at binding = 2
+        write_desc.dstArrayElement = texture_index;
+        write_desc.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write_desc.descriptorCount = 1;
+        write_desc.pImageInfo = &desc_image_info;
+
+        vkUpdateDescriptorSets(context_.device, 1, &write_desc, 0, nullptr);
+    }
+
+    // Cleanup Staging Memory
+    vkFreeMemory(context_.device, staging_mem, nullptr);
+    vkDestroyBuffer(context_.device, staging_buffer, nullptr);
 }
 
 void Renderer::CreateInstance()
@@ -367,9 +600,18 @@ void Renderer::CreateDevice()
     // queue_create_info[1].queueCount = 1;
     // queue_create_info[1].pQueuePriorities = priorities.data();
 
+    VkPhysicalDeviceVulkan12Features vk12_features = {};
+    vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    vk12_features.descriptorBindingPartiallyBound = VK_TRUE;
+    vk12_features.runtimeDescriptorArray = VK_TRUE;
+    vk12_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    vk12_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+    vk12_features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+
     VkDeviceCreateInfo device_create_info = {};
     device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     device_create_info.flags = 0;
+    device_create_info.pNext = &vk12_features;
     device_create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_info.size());
     device_create_info.pQueueCreateInfos = queue_create_info.data();
     device_create_info.enabledExtensionCount = device_extensions.size();
@@ -502,7 +744,7 @@ uint32_t Renderer::ChooseHeapFromFlags(
         }
     }
 
-    if (selected_type != ~0u)
+    if (selected_type == ~0u)
     {
         for (memory_type = 0; memory_type < 32; ++memory_type)
         {
@@ -877,23 +1119,24 @@ void Renderer::CreatePipeline()
     bind_descs[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
     bind_descs[2].binding   = 2;
-    bind_descs[2].stride    = sizeof(float) * 4;
+    bind_descs[2].stride    = sizeof(float) * 2;
     bind_descs[2].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
     std::array<VkVertexInputAttributeDescription, 3> attribute_descs = {};
+    // Position
     attribute_descs[0].location     = 0;
     attribute_descs[0].binding      = 0;
     attribute_descs[0].format       = VK_FORMAT_R32G32B32_SFLOAT;
     attribute_descs[0].offset       = 0;
-    //
+    // Normal
     attribute_descs[1].location     = 1;
     attribute_descs[1].binding      = 1;
     attribute_descs[1].format       = VK_FORMAT_R32G32B32_SFLOAT;
     attribute_descs[1].offset       = 0;
-
+    // UV
     attribute_descs[2].location     = 2;
     attribute_descs[2].binding      = 2;
-    attribute_descs[2].format       = VK_FORMAT_R32G32B32_SFLOAT;
+    attribute_descs[2].format       = VK_FORMAT_R32G32_SFLOAT;
     attribute_descs[2].offset       = 0;
 
 
@@ -982,7 +1225,7 @@ void Renderer::CreatePipeline()
     color_blend_info.blendConstants[2] = 0.0f;
     color_blend_info.blendConstants[3] = 0.0f;
 
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings = {};
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings = {};
     // Ubo
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -993,9 +1236,26 @@ void Renderer::CreatePipeline()
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    // Bindless texture array
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].descriptorCount = 100;  // @todo: temporary constant max texture array.
+    bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    std::array<VkDescriptorBindingFlags, 3> binding_flags = {};
+    binding_flags[0] = 0;   // ubo
+    binding_flags[1] = 0;   // ssbo
+    binding_flags[2] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+
+    VkDescriptorSetLayoutBindingFlagsCreateInfo layout_flags = {};
+    layout_flags.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+    layout_flags.bindingCount = binding_flags.size();
+    layout_flags.pBindingFlags = binding_flags.data();
 
     VkDescriptorSetLayoutCreateInfo layout_info = {};
     layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+    layout_info.pNext = &layout_flags;
     layout_info.bindingCount = bindings.size();
     layout_info.pBindings = bindings.data();
 
@@ -1055,16 +1315,20 @@ void Renderer::CreatePipeline()
 
     vkCreateGraphicsPipelines(context_.device, VK_NULL_HANDLE, 1, &graphics_pipeline_create_info, nullptr, &pipeline_.physical_base_rendering_pipeline);
 
-    std::array<VkDescriptorPoolSize, 2> pool_sizes = {};
+    std::array<VkDescriptorPoolSize, 3> pool_sizes = {};
     // Ubo
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     pool_sizes[0].descriptorCount = kMaxFifCount;
     // Ssbo
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     pool_sizes[1].descriptorCount = kMaxFifCount;
+    // Bindless texturing
+    pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_sizes[2].descriptorCount = 100 * kMaxFifCount;    // @todo: define max count of texture array.
 
     VkDescriptorPoolCreateInfo pool_create_info = {};
     pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     pool_create_info.maxSets = kMaxFifCount;
     pool_create_info.poolSizeCount = pool_sizes.size();
     pool_create_info.pPoolSizes = pool_sizes.data();
@@ -1093,7 +1357,7 @@ void Renderer::CreatePipeline()
         VkDescriptorBufferInfo ssbo_info = {};
         ssbo_info.buffer = frame_data_.ssbo_buffer[0];
         ssbo_info.offset = 0;
-        ssbo_info.range = sizeof(float) * 16;
+        ssbo_info.range = sizeof(SsboObjectData);
 
         std::array<VkWriteDescriptorSet, 2> descriptor_sets = {};
         // Ubo
@@ -1131,29 +1395,26 @@ void Renderer::CreateBatch()
     MeshLoader::Load("../resources/meshes/mega_mike_z.fbx", &batch_data);
 
     // Cpu alignment
-    std::vector<glm::vec4> default_colors(batch_data.position.size(), glm::vec4(0.49f, 0.36f, 0.36f, 1.0f));
-    batch_data.color = default_colors;
-
     VkPhysicalDeviceProperties phys_device_properties = {};
     vkGetPhysicalDeviceProperties(context_.phys_device, &phys_device_properties);
     const VkDeviceSize min_alignment = phys_device_properties.limits.minMemoryMapAlignment;
 
     const VkDeviceSize position_size    = sizeof(glm::vec3) * batch_data.position.size();
     const VkDeviceSize normal_size      = sizeof(glm::vec3) * batch_data.normals.size();
-    const VkDeviceSize color_size       = sizeof(glm::vec4) * batch_data.color.size();
+    const VkDeviceSize uv_size          = sizeof(glm::vec2) * batch_data.uvs.size();
 
     scene_.vertex_position_offset = 0;
     scene_.vertex_normal_offset = Math::Align(scene_.vertex_position_offset + position_size, min_alignment);
-    scene_.vertex_color_offset = Math::Align(scene_.vertex_normal_offset + normal_size, min_alignment);
+    scene_.vertex_uv_offset = Math::Align(scene_.vertex_normal_offset + normal_size, min_alignment);
 
-    const VkDeviceSize vertex_buffer_size = scene_.vertex_color_offset + color_size;
+    const VkDeviceSize vertex_buffer_size = scene_.vertex_uv_offset + uv_size;
 
 
     // Ssbo
     VkBufferCreateInfo ssbo_buffer_create_info = {};
     ssbo_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     ssbo_buffer_create_info.flags = 0;
-    ssbo_buffer_create_info.size = sizeof(float) * 16;                      // 1 model matrix
+    ssbo_buffer_create_info.size = sizeof(SsboObjectData);
     ssbo_buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
     vkCreateBuffer(context_.device, &ssbo_buffer_create_info, nullptr, &frame_data_.ssbo_buffer[0]);
@@ -1173,10 +1434,11 @@ void Renderer::CreateBatch()
     vkBindBufferMemory(context_.device, frame_data_.ssbo_buffer[0], frame_data_.ssbo_mem[0], 0);
 
     void* ssbo_mapped_data = {};
-    auto model_mat = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -80.0f, 100.0f)) * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-
-    vkMapMemory(context_.device, frame_data_.ssbo_mem[0], 0, sizeof(float) * 16, 0, &ssbo_mapped_data);
-    std::memcpy(ssbo_mapped_data, &model_mat, sizeof(float) * 16);
+    SsboObjectData ssbo_object_data = {};
+    ssbo_object_data.texture_id = 0;
+    ssbo_object_data.model_matrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -80.0f, 100.0f)) * glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    vkMapMemory(context_.device, frame_data_.ssbo_mem[0], 0, sizeof(SsboObjectData), 0, &ssbo_mapped_data);
+    std::memcpy(ssbo_mapped_data, &ssbo_object_data, sizeof(SsboObjectData));
     vkUnmapMemory(context_.device, frame_data_.ssbo_mem[0]);
 
     // Load the mesh
@@ -1247,7 +1509,7 @@ void Renderer::CreateBatch()
     char* base_ptr = static_cast<char*>(vertex_stage_mapped_data);
     std::memcpy(base_ptr + scene_.vertex_position_offset, batch_data.position.data(), position_size);
     std::memcpy(base_ptr + scene_.vertex_normal_offset, batch_data.normals.data(), normal_size);
-    std::memcpy(base_ptr + scene_.vertex_color_offset, batch_data.color.data(), color_size);
+    std::memcpy(base_ptr + scene_.vertex_uv_offset, batch_data.uvs.data(), uv_size);
     vkUnmapMemory(context_.device, vertex_stage_mem);
 
 
@@ -1295,7 +1557,7 @@ void Renderer::CreateBatch()
     vkBindBufferMemory(context_.device, scene_.index_buffer, scene_.index_mem, 0);
 
     void* index_mapped_data = {};
-    vkMapMemory(context_.device, scene_.index_mem, 0, batch_data.indices.size(), 0, &index_mapped_data);
+    vkMapMemory(context_.device, scene_.index_mem, 0, batch_data.indices.size() * sizeof(uint32_t), 0, &index_mapped_data);
     std::memcpy(index_mapped_data, batch_data.indices.data(), sizeof(uint32_t) * batch_data.indices.size());
     vkUnmapMemory(context_.device, scene_.index_mem);
 
