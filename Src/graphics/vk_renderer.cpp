@@ -31,8 +31,8 @@ void Renderer::Load(SDL_Window *window)
     CreateDevice();
     volkLoadDevice(context_.device);
 
-    vkGetDeviceQueue(context_.device, 0, 0, &context_.graphics_queue);
-    vkGetDeviceQueue(context_.device, 1, 0, &context_.transfer_queue);
+    vkGetDeviceQueue(context_.device, context_.graphics_queue_family_index, 0, &context_.graphics_queue);
+    // vkGetDeviceQueue(context_.device, 1, 0, &context_.transfer_queue);
 
     CreateSwapchain();
     CreateFif();
@@ -277,6 +277,7 @@ void Renderer::CreateDevice()
         "VK_KHR_dynamic_rendering",         // Allow to bind render pass and framebuffer dynamically.
         "VK_KHR_shader_draw_parameters"};   // Provides access to three additional built-in shader variables in Vulkan (Indirect drawing command)
 
+    // Selecting physical device.
     uint32_t phys_device_count = 0;
     vkEnumeratePhysicalDevices(context_.instance, &phys_device_count, nullptr);
 
@@ -329,23 +330,42 @@ void Renderer::CreateDevice()
         // Elsewhere the context_.phys_device will be VK_NULL_HANDLE and the application will crash.
     }
 
+    // Find queues
     uint32_t queue_family_count = {};
-    vkGetPhysicalDeviceQueueFamilyProperties(context_.phys_device, &queue_family_count, 0);
+    vkGetPhysicalDeviceQueueFamilyProperties(context_.phys_device, &queue_family_count, nullptr);
+
     std::vector<VkQueueFamilyProperties> queue_family_properties(queue_family_count);
     vkGetPhysicalDeviceQueueFamilyProperties(context_.phys_device, &queue_family_count, queue_family_properties.data());
 
+    for (uint32_t i = 0; i < queue_family_count; i++)
+    {
+        VkBool32 support_presentation = {};
+        vkGetPhysicalDeviceSurfaceSupportKHR(context_.phys_device, i, context_.surface, &support_presentation);
+
+        if (context_.graphics_queue_family_index == 0 && queue_family_properties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT && support_presentation)
+        {
+            context_.graphics_queue_family_index = i;
+            continue;   // We want dedicated family for each type of queue. Therefor, skip as soon we find the queue.
+        }
+
+        // if (context_.transfer_queue_family_index == 0 && queue_family_properties[i].queueFlags & VK_QUEUE_TRANSFER_BIT)
+        // {
+        //     context_.transfer_queue_family_index = i;
+        // }
+    }
+
     constexpr std::array<float, 1> priorities = { 1.0f };
-    std::array<VkDeviceQueueCreateInfo, 2> queue_create_info = {};
-    // Graphics + Presentation queue (using vulkan caps viewer).
+    std::array<VkDeviceQueueCreateInfo, 1> queue_create_info = {};
+    // Graphics + Presentation queue
     queue_create_info[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info[0].queueFamilyIndex = 0;
+    queue_create_info[0].queueFamilyIndex = context_.graphics_queue_family_index;
     queue_create_info[0].queueCount = 1;
     queue_create_info[0].pQueuePriorities = priorities.data();
-    // Transfer queue (using vulkan caps viewer)
-    queue_create_info[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info[1].queueFamilyIndex = 1;
-    queue_create_info[1].queueCount = 1;
-    queue_create_info[1].pQueuePriorities = priorities.data();
+    // // Transfer queue
+    // queue_create_info[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    // queue_create_info[1].queueFamilyIndex = context_.transfer_queue_family_index;
+    // queue_create_info[1].queueCount = 1;
+    // queue_create_info[1].pQueuePriorities = priorities.data();
 
     VkDeviceCreateInfo device_create_info = {};
     device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -397,8 +417,6 @@ void Renderer::CreateSwapchain()
     // Init image views
     for (uint32_t i = 0; i < swapchain_image_count; i++)
     {
-        VkImageView image_view = {};
-
         VkImageSubresourceRange subresource_range = {};
         subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         subresource_range.baseMipLevel = 0;
