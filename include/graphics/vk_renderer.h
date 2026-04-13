@@ -59,6 +59,9 @@ private:
     void CreateBatch();
 
 private:
+
+    // Core objects needed in every vulkan application.
+    // Their lifetime usually are equal to the entire application.
     struct
     {
         VkInstance instance                         = {};
@@ -74,6 +77,10 @@ private:
         uint32_t transfer_queue_family_index        = {};   // Currently unused. Need to setup a command pool and buffer
     } context_;
 
+    // Swapchain related objectes. Used for presentation.
+    // Their lifetime is strictly related to window and they must be
+    // reconstructed every time the window size changes.
+    // Swapchain images can vary based on the presentation mode.
     struct
     {
         VkSwapchainKHR swapchain                                = {};
@@ -96,6 +103,16 @@ private:
         std::vector<VkFramebuffer> framebuffers = {};
     } swapchain_;
 
+    // Per-frame objects. Try to avoid cpu stalls.
+    //
+    // @note:
+    // For each frame-in-flight (FIF)
+    // - semaphore (acquire)
+    // - fence (for submit, wait and reset)
+    // - command pool + command buffer (for best practice)
+    // For each swapchain image
+    // - semaphore (renderer end)
+    // - framebuffer (connected to swapchain image)
     static constexpr size_t kMaxFifCount = 2;
     struct
     {
@@ -110,6 +127,7 @@ private:
         VkDeviceMemory ubo_mem[kMaxFifCount]                = {};
 
         // Ssbo
+        // @todo: create different ssbo based on rate of updates. They might be not tight together per-frame
         VkBuffer ssbo_buffer[kMaxFifCount]                  = {};
         VkDeviceMemory ssbo_mem[kMaxFifCount]               = {};
 
@@ -131,20 +149,25 @@ private:
         VkPipeline physical_base_rendering_pipeline         = {};
     } pipeline_;
 
+    // Scene has:
+    // - vertex pack together different geometries { position, normal, color, ... }
+    // - store the offset for each vertex property. They will be used for bind commands.
+    // - index pack together different geometries' indices.
+    // - indirect draw pack together different indirect draw commands.
     struct
     {
-        VkBuffer vertex_buffer = {};
-        VkDeviceMemory vertex_mem = {};
+        VkBuffer vertex_buffer              = {};
+        VkDeviceMemory vertex_mem           = {};
 
         VkDeviceSize vertex_position_offset = {};
-        VkDeviceSize vertex_normal_offset = {};
-        VkDeviceSize vertex_color_offset = {};
+        VkDeviceSize vertex_normal_offset   = {};
+        VkDeviceSize vertex_color_offset    = {};
 
-        VkBuffer index_buffer = {};
-        VkDeviceMemory index_mem = {};
+        VkBuffer index_buffer               = {};
+        VkDeviceMemory index_mem            = {};
 
-        VkBuffer indirect_draw_buffer = {};
-        VkDeviceMemory indirect_draw_mem = {};
+        VkBuffer indirect_draw_buffer       = {};
+        VkDeviceMemory indirect_draw_mem    = {};
     } scene_;
 
     struct
