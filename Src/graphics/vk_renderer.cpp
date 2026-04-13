@@ -237,7 +237,7 @@ void Renderer::CreateInstance()
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app_info.pApplicationName = "Orda";
     app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    app_info.apiVersion = VK_MAKE_VERSION(1, 3, 0);         // Use 1.3 for dynamic rendering
+    app_info.apiVersion = VK_MAKE_VERSION(1, 3, 0);         // Vulkan version must be > 1.2 to enable VK_EXT_descriptor_indexing
 
     VkInstanceCreateInfo create_info = {};
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -272,7 +272,7 @@ void Renderer::CreateDevice()
     std::array<const char*, 3> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         "VK_KHR_dynamic_rendering",         // Allow to bind render pass and framebuffer dynamically.
-        "VK_KHR_shader_draw_parameters"};   // Provides access to three additional built-in shader variables in Vulkan (Indirect drawing command)
+        "VK_KHR_shader_draw_parameters"};    // Provides access to three additional built-in shader variables in Vulkan (Indirect drawing command)
 
     uint32_t phys_device_count = 0;
     vkEnumeratePhysicalDevices(context_.instance, &phys_device_count, nullptr);
