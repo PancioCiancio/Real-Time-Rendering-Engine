@@ -676,6 +676,9 @@ void Renderer::CreateDevice()
 
 void Renderer::CreateSwapchain(VkSwapchainKHR old_swapchain)
 {
+    // Getting the extents directly from the surface capabilities, return
+    // correctly on windows platform. Not sure about other platforms
+
     VkSurfaceCapabilitiesKHR caps = {};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context_.phys_device, context_.surface, &caps);
 
