@@ -35,7 +35,7 @@ void Renderer::Load(SDL_Window *window)
     vkGetDeviceQueue(context_.device, context_.graphics_queue_family_index, 0, &context_.graphics_queue);
     // vkGetDeviceQueue(context_.device, 1, 0, &context_.transfer_queue);
 
-    CreateSwapchain();
+    CreateSwapchain(VK_NULL_HANDLE);
     CreateFif();
     CreateImages();
     PrepareDepthStencil();
@@ -51,6 +51,47 @@ void Renderer::Load(SDL_Window *window)
 
 void Renderer::Update(double delta_time)
 {
+    if (loop_.resize_requested)
+    {
+        vkDeviceWaitIdle(context_.device);
+
+        // Destroy: framebuffers
+        for (auto& framebuffer : swapchain_.framebuffers)
+        {
+            vkDestroyFramebuffer(context_.device, framebuffer, nullptr);
+        }
+
+        // Destroy: depth+stencil, color sampler, swapchain image vies
+        vkDestroyImageView(context_.device, swapchain_.sample_color_image_view, nullptr);
+        vkDestroyImageView(context_.device, swapchain_.depth_stencil_image_view, nullptr);
+
+        vkDestroyImage(context_.device, swapchain_.sample_color_image, nullptr);
+        vkDestroyImage(context_.device, swapchain_.depth_stencil_image, nullptr);
+
+        vkFreeMemory(context_.device, swapchain_.sample_color_mem, nullptr);
+        vkFreeMemory(context_.device, swapchain_.depth_stencil_mem, nullptr);
+
+        for (auto& image_view : swapchain_.image_views)
+        {
+            vkDestroyImageView(context_.device, image_view, nullptr);
+        }
+
+        for (auto& semaphore : swapchain_.renderer_finished_semaphores)
+        {
+            vkDestroySemaphore(context_.device, semaphore, nullptr);
+        }
+
+        VkSwapchainKHR old_swapchain = swapchain_.swapchain;
+        CreateSwapchain(old_swapchain);                                  // Create the new swapchain by reusing the old one
+        vkDestroySwapchainKHR(context_.device, old_swapchain, nullptr);  // Destroy the old swapchain
+
+        CreateImages();
+        CreateFramebuffers();
+        PrepareDepthStencil();
+
+        loop_.resize_requested = false;
+    }
+
     // Camera calculation
     glm::vec3 camera_pos        = {0.0f, 0.0f, -200.0f};
     glm::vec3 camera_pos_new    = {0.0f, 0.0f, -200.0f};
@@ -64,11 +105,17 @@ void Renderer::Update(double delta_time)
     const float camera_lerp_alpha = 1.0f - glm::pow(2.0f, -static_cast<float>(delta_time) / half_time);
     camera_pos = glm::mix(camera_pos, camera_pos_new, camera_lerp_alpha);
 
-
     // Vulkan wait
     vkWaitForFences(context_.device, 1, &frame_data_.submit_fences[loop_.frame_index], VK_TRUE, UINT64_MAX);
     uint32_t next_image = 0u;
-    vkAcquireNextImageKHR(context_.device, swapchain_.swapchain, UINT64_MAX, frame_data_.acquired_image_semaphores[loop_.frame_index], VK_NULL_HANDLE, &next_image);
+    const VkResult acquire_image_result = vkAcquireNextImageKHR(context_.device, swapchain_.swapchain, UINT64_MAX, frame_data_.acquired_image_semaphores[loop_.frame_index], VK_NULL_HANDLE, &next_image);
+
+    if (acquire_image_result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        loop_.resize_requested = true;
+        return;
+    }
+
     vkResetFences(context_.device, 1, &frame_data_.submit_fences[loop_.frame_index]);
     vkResetCommandPool(context_.device, frame_data_.cmd_pool[loop_.frame_index], 0);
 
@@ -166,7 +213,13 @@ void Renderer::Update(double delta_time)
     present_info.pSwapchains = &swapchain_.swapchain;
     present_info.pImageIndices = &next_image;
     present_info.pResults = &result;
-    vkQueuePresentKHR(context_.graphics_queue, &present_info);
+    const VkResult present_result = vkQueuePresentKHR(context_.graphics_queue, &present_info);
+
+    if (present_result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        loop_.resize_requested = true;
+        return;
+    }
 
     loop_.frame_index = (loop_.frame_index + 1) % kMaxFifCount;
 }
@@ -438,11 +491,11 @@ void Renderer::LoadTextures()
     desc_image_info.sampler = scene_.texture_sampler;
 
     // Loop through your FIF frames to ensure all descriptor sets have the bindless pointer
-    for (size_t i = 0; i < kMaxFifCount; i++)
+    for (auto& descriptor_set : frame_data_.descriptor_sets)
     {
         VkWriteDescriptorSet write_desc = {};
         write_desc.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_desc.dstSet = frame_data_.descriptor_sets[i];
+        write_desc.dstSet = descriptor_set;
         write_desc.dstBinding = 2; // Assuming bindless array is at binding = 2
         write_desc.dstArrayElement = texture_index;
         write_desc.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -621,7 +674,7 @@ void Renderer::CreateDevice()
     vkCreateDevice(context_.phys_device, &device_create_info, nullptr, &context_.device);
 }
 
-void Renderer::CreateSwapchain()
+void Renderer::CreateSwapchain(VkSwapchainKHR old_swapchain)
 {
     VkSurfaceCapabilitiesKHR caps = {};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context_.phys_device, context_.surface, &caps);
@@ -644,7 +697,7 @@ void Renderer::CreateSwapchain()
     create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     create_info.presentMode = present_mode;
     create_info.clipped = VK_TRUE;
-    create_info.oldSwapchain = nullptr;
+    create_info.oldSwapchain = old_swapchain;
 
     vkCreateSwapchainKHR(context_.device, &create_info, nullptr, &swapchain_.swapchain);
 
@@ -1355,7 +1408,7 @@ void Renderer::CreatePipeline()
         ubo_info.range = sizeof(float) * 16 * 2;
 
         VkDescriptorBufferInfo ssbo_info = {};
-        ssbo_info.buffer = frame_data_.ssbo_buffer[0];
+        ssbo_info.buffer = frame_data_.ssbo_buffer[0];      // Use the same buffer since the geometry doesn't change (yet).
         ssbo_info.offset = 0;
         ssbo_info.range = sizeof(SsboObjectData);
 

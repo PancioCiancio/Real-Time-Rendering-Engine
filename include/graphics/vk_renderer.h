@@ -48,7 +48,7 @@ private:
     void CreateInstance();
     void CreateSurface(SDL_Window* window);
     void CreateDevice();
-    void CreateSwapchain();
+    void CreateSwapchain(VkSwapchainKHR old_swapchain);
     void CreateFif();
     uint32_t ChooseHeapFromFlags(const VkMemoryRequirements& mem_requirements, VkMemoryPropertyFlags required_flags, VkMemoryPropertyFlags preferred_flags) const;
     void CreateImages();
@@ -152,9 +152,8 @@ private:
 
     struct SsboObjectData
     {
-        uint32_t texture_id     = {};
-        uint32_t _pad[3]        = {};
-        glm::mat4 model_matrix  = {};
+        alignas(16) uint32_t texture_id     = {};
+        alignas(16) glm::mat4 model_matrix  = {};
     };
 
     // Scene has:
@@ -185,7 +184,8 @@ private:
 
     struct
     {
-        uint32_t frame_index = {};
+        bool resize_requested   = {};
+        uint32_t frame_index    = {};
     } loop_;
 };
 
