@@ -180,6 +180,9 @@ private:
         VkImageView texture_image_view      = {};
         VkDeviceMemory texture_mem          = {};
         VkSampler texture_sampler           = {};
+
+        VkBuffer stage_buffer               = {};
+        VkDeviceMemory stage_mem            = {};
     } scene_;
 
     struct

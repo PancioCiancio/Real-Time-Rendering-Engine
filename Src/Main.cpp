@@ -11,9 +11,12 @@
 
 int main()
 {
+	// Init window
+	// Vulkan rendering support and resizeable
 	SDL_Init(SDL_INIT_VIDEO);
 	SDL_Window* window = SDL_CreateWindow("Orda", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 
+	// Create the vulkan renderer.
 	Renderer renderer = {};
 	renderer.Load(window);
 

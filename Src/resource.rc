@@ -1,0 +1,5 @@
+// This file is required to display the icon in the windows resource bar.
+
+#include <windows.h>
+
+1 ICON "orda.ico"

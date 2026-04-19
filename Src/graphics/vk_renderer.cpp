@@ -526,7 +526,7 @@ void Renderer::CreateInstance()
     app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app_info.pApplicationName = "Orda";
     app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    app_info.apiVersion = VK_MAKE_VERSION(1, 3, 0);         // Vulkan version must be > 1.2 to enable VK_EXT_descriptor_indexing
+    app_info.apiVersion = VK_MAKE_VERSION(1, 3, 0);         // Vulkan version must be > 1.2 to enable VK_EXT_descriptor_indexing, VK_KHR_shader_draw_parameters, VK_KHR_dynamic_rendering.
 
     VkInstanceCreateInfo create_info = {};
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -558,10 +558,8 @@ void Renderer::CreateDevice()
     required_features.sampleRateShading     = VK_TRUE;
     required_features.samplerAnisotropy     = VK_TRUE;
 
-    std::array<const char*, 3> device_extensions = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        "VK_KHR_dynamic_rendering",         // Allow to bind render pass and framebuffer dynamically.
-        "VK_KHR_shader_draw_parameters"};   // Provides access to three additional built-in shader variables in Vulkan (Indirect drawing command)
+    std::array<const char*, 1> device_extensions = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME};   // Provides access to three additional built-in shader variables in Vulkan (Indirect drawing command)
 
     // Selecting physical device.
     uint32_t phys_device_count = 0;
@@ -682,8 +680,32 @@ void Renderer::CreateSwapchain(VkSwapchainKHR old_swapchain)
     VkSurfaceCapabilitiesKHR caps = {};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context_.phys_device, context_.surface, &caps);
 
+    uint32_t surface_format_count = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(context_.phys_device, context_.surface, &surface_format_count, nullptr);
+
+    std::vector<VkSurfaceFormatKHR> surface_formats(surface_format_count);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(context_.phys_device, context_.surface, &surface_format_count, surface_formats.data());
+
+    // Find the suitable surface format
+    VkSurfaceFormatKHR select_surface_format = {};
+    for (VkSurfaceFormatKHR surface_format : surface_formats)
+    {
+        // Preferred surface format
+        if (surface_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+            surface_format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+        {
+            select_surface_format = surface_format;
+            break;
+        }
+    }
+
+    if (select_surface_format.format == VK_FORMAT_UNDEFINED)
+    {
+        select_surface_format = surface_formats[0];
+    }
+
     constexpr VkPresentModeKHR present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
-    swapchain_.surface_format = {VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};   // Known from vulkan caps viewer
+    swapchain_.surface_format = select_surface_format;
     swapchain_.extent = caps.currentExtent;
 
     VkSwapchainCreateInfoKHR create_info = {};

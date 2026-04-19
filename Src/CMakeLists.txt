@@ -2,7 +2,8 @@ add_subdirectory(graphics)
 
 add_executable(Engine
         "Main.cpp"
-        "FileSystem.cpp")
+        "FileSystem.cpp"
+        "resource.rc")      # Needed to display the icon
 
 target_link_libraries(Engine
         PRIVATE
