@@ -14,8 +14,8 @@ layout(set = 0, binding = 0) uniform PerFrameData {
 } ubo;
 
 struct ObjectData {
-    uint texture_id;
-    mat4 model_matrix;
+    uint texture_id;        // Alignment is handled on CPU-side
+    mat4 model_matrix;      // Alignment is handled on CPU-side
 };
 
 layout(std140, set = 0, binding = 1) readonly buffer InstanceData {
