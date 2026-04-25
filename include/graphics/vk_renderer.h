@@ -57,6 +57,7 @@ private:
     void CreateRenderPass();
     void CreateFramebuffers();
     void CreatePipeline();
+    void CreateStageBuffer();
     void CreateBatch();
 
 private:

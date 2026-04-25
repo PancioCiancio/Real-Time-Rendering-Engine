@@ -40,6 +40,7 @@ void Renderer::Load(SDL_Window *window)
     CreateImages();
     PrepareDepthStencil();
 
+    CreateStageBuffer();
     CreateBatch();
     CreateUbo();
     CreateRenderPass();
@@ -236,10 +237,12 @@ void Renderer::Unload()
     vkFreeMemory(context_.device, scene_.vertex_mem, nullptr);
     vkFreeMemory(context_.device, scene_.index_mem, nullptr);
     vkFreeMemory(context_.device, scene_.indirect_draw_mem, nullptr);
+    vkFreeMemory(context_.device, scene_.stage_mem, nullptr);
 
     vkDestroyBuffer(context_.device, scene_.vertex_buffer, nullptr);
     vkDestroyBuffer(context_.device, scene_.index_buffer, nullptr);
     vkDestroyBuffer(context_.device, scene_.indirect_draw_buffer, nullptr);
+    vkDestroyBuffer(context_.device, scene_.stage_buffer, nullptr);
 
     vkDestroyPipeline(context_.device, pipeline_.physical_base_rendering_pipeline, nullptr);
     vkDestroyPipelineLayout(context_.device, pipeline_.pipeline_layout, nullptr);
@@ -287,7 +290,7 @@ void Renderer::Unload()
 
 void Renderer::LoadTextures()
 {
-// Load the .pngs
+    // Load the .pngs
     int text_width = {};
     int text_height = {};
     int text_channels = {};
@@ -295,36 +298,11 @@ void Renderer::LoadTextures()
 
     VkDeviceSize image_size = text_width * text_height * 4;
 
-    // Create staging buffer.
-    VkBuffer staging_buffer = {};
-    VkDeviceMemory staging_mem = {};
-
-    VkBufferCreateInfo stage_buffer_create_info = {};
-    stage_buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    stage_buffer_create_info.flags = 0;
-    stage_buffer_create_info.size = image_size; // Match exact image size
-    stage_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-    vkCreateBuffer(context_.device, &stage_buffer_create_info, nullptr, &staging_buffer);
-
-    VkMemoryRequirements stage_buffer_mem_requirements = {};
-    vkGetBufferMemoryRequirements(context_.device, staging_buffer, &stage_buffer_mem_requirements);
-    const uint32_t vertex_mem_type = ChooseHeapFromFlags(stage_buffer_mem_requirements, stage_buffer_mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
-    VkMemoryAllocateInfo vertex_mem_alloc_info = {};
-    vertex_mem_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    vertex_mem_alloc_info.pNext = nullptr;
-    vertex_mem_alloc_info.allocationSize = stage_buffer_mem_requirements.size;
-    vertex_mem_alloc_info.memoryTypeIndex = vertex_mem_type;
-
-    vkAllocateMemory(context_.device, &vertex_mem_alloc_info, nullptr, &staging_mem);
-    vkBindBufferMemory(context_.device, staging_buffer, staging_mem, 0);
-
     // Write the pixels into the staging buffer.
     void* data = {};
-    vkMapMemory(context_.device, staging_mem, 0, image_size, 0, &data);
+    vkMapMemory(context_.device, scene_.stage_mem, 0, image_size, 0, &data);
     std::memcpy(data, pixels, image_size);
-    vkUnmapMemory(context_.device, staging_mem);
+    vkUnmapMemory(context_.device, scene_.stage_mem);
 
     // Free the raw image pixel data
     stbi_image_free(pixels);
@@ -410,7 +388,7 @@ void Renderer::LoadTextures()
 
     vkCmdCopyBufferToImage(
         frame_data_.cmd_buffer[0],
-        staging_buffer,
+        scene_.stage_buffer,
         scene_.texture_image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1, &region
@@ -504,10 +482,6 @@ void Renderer::LoadTextures()
 
         vkUpdateDescriptorSets(context_.device, 1, &write_desc, 0, nullptr);
     }
-
-    // Cleanup Staging Memory
-    vkFreeMemory(context_.device, staging_mem, nullptr);
-    vkDestroyBuffer(context_.device, staging_buffer, nullptr);
 }
 
 void Renderer::CreateInstance()
@@ -1462,6 +1436,37 @@ void Renderer::CreatePipeline()
     vkDestroyShaderModule(context_.device, shader_modules[1], nullptr);
 }
 
+void Renderer::CreateStageBuffer()
+{
+    VkPhysicalDeviceProperties phys_device_properties = {};
+    vkGetPhysicalDeviceProperties(context_.phys_device, &phys_device_properties);
+
+    // Allocate 500mb (vulkan best practice)
+    const size_t buffer_size = Math::Align(1024 * 1024 * 512, phys_device_properties.limits.minMemoryMapAlignment);
+
+    VkBufferCreateInfo vert_stage_buff_create_info = {};
+    vert_stage_buff_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    vert_stage_buff_create_info.flags = 0;
+    vert_stage_buff_create_info.size = buffer_size;
+    vert_stage_buff_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
+    vkCreateBuffer(context_.device, &vert_stage_buff_create_info, nullptr, &scene_.stage_buffer);
+
+    VkMemoryRequirements vertex_mem_requirements = {};
+    vkGetBufferMemoryRequirements(context_.device, scene_.stage_buffer, &vertex_mem_requirements);
+
+    const uint32_t vertex_mem_type = ChooseHeapFromFlags(vertex_mem_requirements, vertex_mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+    VkMemoryAllocateInfo vertex_mem_alloc_info = {};
+    vertex_mem_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    vertex_mem_alloc_info.pNext = nullptr;
+    vertex_mem_alloc_info.allocationSize = vertex_mem_requirements.size;
+    vertex_mem_alloc_info.memoryTypeIndex = vertex_mem_type;
+
+    vkAllocateMemory(context_.device, &vertex_mem_alloc_info, nullptr, &scene_.stage_mem);
+    vkBindBufferMemory(context_.device, scene_.stage_buffer, scene_.stage_mem, 0);
+}
+
 void Renderer::CreateBatch()
 {
     // In this demo we don't update the model matrix or any vertex input
@@ -1555,40 +1560,14 @@ void Renderer::CreateBatch()
     std::memcpy(indirect_draw_mapped_data, &indirect_draw_cmd, sizeof(VkDrawIndexedIndirectCommand));
     vkUnmapMemory(context_.device, scene_.indirect_draw_mem);
 
-
-    // Vertex Stage buffer
-    VkBuffer vertex_stage_buffer = {};
-    VkDeviceMemory vertex_stage_mem = {};
-
-    VkBufferCreateInfo vert_stage_buff_create_info = {};
-    vert_stage_buff_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    vert_stage_buff_create_info.flags = 0;
-    vert_stage_buff_create_info.size = Math::Align(vertex_buffer_size, min_alignment);          // @todo: align position, normal, color of the loaded model.
-    vert_stage_buff_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-
-    vkCreateBuffer(context_.device, &vert_stage_buff_create_info, nullptr, &vertex_stage_buffer);
-
-    VkMemoryRequirements vertex_mem_requirements = {};
-    vkGetBufferMemoryRequirements(context_.device, vertex_stage_buffer, &vertex_mem_requirements);
-
-    const uint32_t vertex_mem_type = ChooseHeapFromFlags(vertex_mem_requirements, vertex_mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
-    VkMemoryAllocateInfo vertex_mem_alloc_info = {};
-    vertex_mem_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    vertex_mem_alloc_info.pNext = nullptr;
-    vertex_mem_alloc_info.allocationSize = vertex_mem_requirements.size;
-    vertex_mem_alloc_info.memoryTypeIndex = vertex_mem_type;
-
-    vkAllocateMemory(context_.device, &vertex_mem_alloc_info, nullptr, &vertex_stage_mem);
-    vkBindBufferMemory(context_.device, vertex_stage_buffer, vertex_stage_mem, 0);
-
+    // Copy into the stage buffer previously created.
     void* vertex_stage_mapped_data = {};
-    vkMapMemory(context_.device, vertex_stage_mem, 0, vertex_buffer_size, 0, &vertex_stage_mapped_data);
+    vkMapMemory(context_.device, scene_.stage_mem, 0, vertex_buffer_size, 0, &vertex_stage_mapped_data);
     char* base_ptr = static_cast<char*>(vertex_stage_mapped_data);
     std::memcpy(base_ptr + scene_.vertex_position_offset, batch_data.position.data(), position_size);
     std::memcpy(base_ptr + scene_.vertex_normal_offset, batch_data.normals.data(), normal_size);
     std::memcpy(base_ptr + scene_.vertex_uv_offset, batch_data.uvs.data(), uv_size);
-    vkUnmapMemory(context_.device, vertex_stage_mem);
+    vkUnmapMemory(context_.device, scene_.stage_mem);
 
 
     // Vertex Local buffer
@@ -1659,7 +1638,7 @@ void Renderer::CreateBatch()
     copy_buffer.srcOffset = 0;
     copy_buffer.dstOffset = 0;
     copy_buffer.size = Math::Align(vertex_buffer_size, min_alignment);;
-    vkCmdCopyBuffer(frame_data_.cmd_buffer[0], vertex_stage_buffer, scene_.vertex_buffer, 1, &copy_buffer);
+    vkCmdCopyBuffer(frame_data_.cmd_buffer[0], scene_.stage_buffer, scene_.vertex_buffer, 1, &copy_buffer);
 
     copy_buffer_mem_barrier[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
     copy_buffer_mem_barrier[1].size = Math::Align(vertex_buffer_size, min_alignment);;
@@ -1677,7 +1656,4 @@ void Renderer::CreateBatch()
 
     vkQueueSubmit(context_.graphics_queue, 1, &submitInfo, VK_NULL_HANDLE);
     vkQueueWaitIdle(context_.graphics_queue);
-
-    vkFreeMemory(context_.device, vertex_stage_mem, nullptr);
-    vkDestroyBuffer(context_.device, vertex_stage_buffer, nullptr);
 }
