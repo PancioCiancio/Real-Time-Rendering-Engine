@@ -177,9 +177,9 @@ private:
         VkBuffer indirect_draw_buffer       = {};
         VkDeviceMemory indirect_draw_mem    = {};
 
-        VkImage texture_image               = {};
-        VkImageView texture_image_view      = {};
-        VkDeviceMemory texture_mem          = {};
+        std::vector<VkImage> texture_images               = {};
+        std::vector<VkImageView> texture_image_views      = {};
+        std::vector<VkDeviceMemory> texture_mems          = {};
         VkSampler texture_sampler           = {};
 
         VkBuffer stage_buffer               = {};

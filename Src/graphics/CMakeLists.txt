@@ -57,3 +57,4 @@ configure_file("${CMAKE_SOURCE_DIR}/resources/shaders/frag.spv" "${CMAKE_BINARY_
 configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/behemoth.fbx" "${CMAKE_BINARY_DIR}/resources/meshes/SM_Behemoth.fbx" COPYONLY)
 configure_file("${CMAKE_SOURCE_DIR}/resources/meshes/mega_mike_z.fbx" "${CMAKE_BINARY_DIR}/resources/meshes/mega_mike_z.fbx" COPYONLY)
 configure_file("${CMAKE_SOURCE_DIR}/resources/textures/mega_mike_z/T_ZMike_Green_Base_color.png" "${CMAKE_BINARY_DIR}/resources/textures/mega_mike_z/T_ZMike_Green_Base_color.png" COPYONLY)
+configure_file("${CMAKE_SOURCE_DIR}/resources/textures/mega_mike_z/T_ZMike_Normal_DirectX.png" "${CMAKE_BINARY_DIR}/resources/textures/mega_mike_z/T_ZMike_Normal_DirectX.png" COPYONLY)

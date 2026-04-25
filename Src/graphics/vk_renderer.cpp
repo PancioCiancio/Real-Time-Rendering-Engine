@@ -16,6 +16,7 @@
 #include <unordered_set>
 
 #define STB_IMAGE_IMPLEMENTATION
+#include <type_traits>
 #include <stb/stb_image.h>
 
 #include "MeshLoader.h"
@@ -230,9 +231,21 @@ void Renderer::Unload()
     vkDeviceWaitIdle(context_.device);
 
     vkDestroySampler(context_.device, scene_.texture_sampler, nullptr);
-    vkDestroyImageView(context_.device, scene_.texture_image_view, nullptr);
-    vkDestroyImage(context_.device, scene_.texture_image, nullptr);
-    vkFreeMemory(context_.device, scene_.texture_mem, nullptr);
+
+    for (auto& image_view : scene_.texture_image_views)
+    {
+        vkDestroyImageView(context_.device, image_view, nullptr);
+    }
+
+    for (auto& image : scene_.texture_images)
+    {
+        vkDestroyImage(context_.device, image, nullptr);
+    }
+
+    for (auto& mem : scene_.texture_mems)
+    {
+        vkFreeMemory(context_.device, mem, nullptr);
+    }
 
     vkFreeMemory(context_.device, scene_.vertex_mem, nullptr);
     vkFreeMemory(context_.device, scene_.index_mem, nullptr);
@@ -290,62 +303,91 @@ void Renderer::Unload()
 
 void Renderer::LoadTextures()
 {
-    // Load the .pngs
-    int text_width = {};
-    int text_height = {};
-    int text_channels = {};
-    stbi_uc* pixels = stbi_load("../resources/textures/mega_mike_z/T_ZMike_Green_Base_color.png", &text_width, &text_height, &text_channels, STBI_rgb_alpha);
+    VkPhysicalDeviceProperties phys_device_properties = {};
+    vkGetPhysicalDeviceProperties(context_.phys_device, &phys_device_properties);
 
-    VkDeviceSize image_size = text_width * text_height * 4;
+    // Get array of paths.
+    // load the raw textures.
+    constexpr size_t texture_count = 2;
+    const std::array<const char*, texture_count> textures_path = {
+        "../resources/textures/mega_mike_z/T_ZMike_Green_Base_color.png",
+        "../resources/textures/mega_mike_z/T_ZMike_Normal_DirectX.png"
+    };
+
+    scene_.texture_images.resize(texture_count);
+    scene_.texture_image_views.resize(texture_count);
+    scene_.texture_mems.resize(texture_count);
+
+    std::array<stbi_uc*, texture_count> textures_pixels = {};
+    std::array<int, texture_count> textures_width       = {};
+    std::array<int, texture_count> textures_height      = {};
+    std::array<int, texture_count> textures_channels    = {};
+    std::array<VkDeviceSize, texture_count> textures_mem_size       = {};
+    std::array<VkDeviceSize, texture_count> textures_mem_offsets    = {};
+
+    for (size_t i = 0; i < texture_count; i++)
+    {
+        textures_pixels[i] = stbi_load(textures_path[i], &textures_width[i], &textures_height[i], &textures_channels[i], STBI_rgb_alpha);
+        textures_mem_size[i] = textures_width[i] * textures_height[i] * 4;
+    }
+
+    for (size_t i = 1; i < texture_count; i++)
+    {
+        textures_mem_offsets[i] = Math::Align(textures_mem_offsets[i-1] + textures_mem_size[i - 1], phys_device_properties.limits.minMemoryMapAlignment);
+    }
 
     // Write the pixels into the staging buffer.
+    const VkDeviceSize total_image_size = textures_mem_offsets[texture_count - 1] + textures_mem_size[texture_count - 1];
     void* data = {};
-    vkMapMemory(context_.device, scene_.stage_mem, 0, image_size, 0, &data);
-    std::memcpy(data, pixels, image_size);
+    vkMapMemory(context_.device, scene_.stage_mem, 0, total_image_size, 0, &data);
+    char* base_ptr = static_cast<char*>(data);
+
+    for (size_t i = 0; i < texture_count; i++)
+    {
+        std::memcpy(base_ptr + textures_mem_offsets[i], textures_pixels[i], textures_mem_size[i]);
+    }
+
     vkUnmapMemory(context_.device, scene_.stage_mem);
 
     // Free the raw image pixel data
-    stbi_image_free(pixels);
+    for (auto& pixels : textures_pixels)
+    {
+        stbi_image_free(pixels);
+    }
 
-    // -----------------------------------------------------------------
-    // 1. Create the Vulkan Image
-    // -----------------------------------------------------------------
-    VkImageCreateInfo image_info = {};
-    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = static_cast<uint32_t>(text_width);
-    image_info.extent.height = static_cast<uint32_t>(text_height);
-    image_info.extent.depth = 1;
-    image_info.mipLevels = 1;
-    image_info.arrayLayers = 1;
-    image_info.format = VK_FORMAT_R8G8B8A8_SRGB;
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    // @todo: we are creating albedo and normal with the same format. It's wrong!!!
+    for (size_t i = 0; i < texture_count; i++)
+    {
+        VkImageCreateInfo image_info = {};
+        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        image_info.imageType = VK_IMAGE_TYPE_2D;
+        image_info.extent.width = static_cast<uint32_t>(textures_width[i]);
+        image_info.extent.height = static_cast<uint32_t>(textures_height[i]);
+        image_info.extent.depth = 1;
+        image_info.mipLevels = 1;
+        image_info.arrayLayers = 1;
+        image_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+        image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    vkCreateImage(context_.device, &image_info, nullptr, &scene_.texture_image);
+        vkCreateImage(context_.device, &image_info, nullptr, &scene_.texture_images[i]);
 
-    // -----------------------------------------------------------------
-    // 2. Allocate Image Memory
-    // -----------------------------------------------------------------
-    VkMemoryRequirements mem_requirements = {};
-    vkGetImageMemoryRequirements(context_.device, scene_.texture_image, &mem_requirements);
+        VkMemoryRequirements mem_requirements = {};
+        vkGetImageMemoryRequirements(context_.device, scene_.texture_images[i], &mem_requirements);
+        const uint32_t image_mem_type = ChooseHeapFromFlags(mem_requirements, mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    const uint32_t image_mem_type = ChooseHeapFromFlags(mem_requirements, mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VkMemoryAllocateInfo image_alloc_info = {};
+        image_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        image_alloc_info.allocationSize = mem_requirements.size;
+        image_alloc_info.memoryTypeIndex = image_mem_type;
 
-    VkMemoryAllocateInfo image_alloc_info = {};
-    image_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    image_alloc_info.allocationSize = mem_requirements.size;
-    image_alloc_info.memoryTypeIndex = image_mem_type;
+        vkAllocateMemory(context_.device, &image_alloc_info, nullptr, &scene_.texture_mems[i]);
+        vkBindImageMemory(context_.device, scene_.texture_images[i], scene_.texture_mems[i], 0);
+    }
 
-    vkAllocateMemory(context_.device, &image_alloc_info, nullptr, &scene_.texture_mem);
-    vkBindImageMemory(context_.device, scene_.texture_image, scene_.texture_mem, 0);
-
-    // -----------------------------------------------------------------
-    // 3. Record command buffer for layout transitions and copy
-    // -----------------------------------------------------------------
     VkCommandBufferBeginInfo cmd_begin_info = {};
     cmd_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     cmd_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -353,57 +395,69 @@ void Renderer::LoadTextures()
     vkBeginCommandBuffer(frame_data_.cmd_buffer[0], &cmd_begin_info);
 
     // Transition Undefined -> Transfer Dst
-    VkImageMemoryBarrier barrier = {};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = scene_.texture_image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    std::array<VkImageMemoryBarrier, texture_count> barriers = {};
+    for (size_t i = 0; i < texture_count; i++)
+    {
+        VkImageMemoryBarrier& barrier = barriers[i];
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = scene_.texture_images[i];
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    }
 
     vkCmdPipelineBarrier(
         frame_data_.cmd_buffer[0],
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-        0, 0, nullptr, 0, nullptr, 1, &barrier
+        0, 0, nullptr, 0, nullptr, barriers.size(), barriers.data()
     );
 
     // Copy Buffer to Image
-    VkBufferImageCopy region = {};
-    region.bufferOffset = 0;
-    region.bufferRowLength = 0;
-    region.bufferImageHeight = 0;
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-    region.imageOffset = {0, 0, 0};
-    region.imageExtent = { static_cast<uint32_t>(text_width), static_cast<uint32_t>(text_height), 1 };
+    std::array<VkBufferImageCopy, texture_count> regions = {};
+    for (size_t i = 0; i < texture_count; i++)
+    {
+        VkBufferImageCopy& region = regions[i];
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+        region.imageOffset = {0, 0, 0};
+        region.imageExtent = { static_cast<uint32_t>(textures_width[i]), static_cast<uint32_t>(textures_height[i]), 1 };
 
-    vkCmdCopyBufferToImage(
-        frame_data_.cmd_buffer[0],
-        scene_.stage_buffer,
-        scene_.texture_image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1, &region
-    );
+        vkCmdCopyBufferToImage(
+            frame_data_.cmd_buffer[0],
+            scene_.stage_buffer,
+            scene_.texture_images[i],
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &regions[i]
+        );
+    }
+
 
     // Transition Transfer Dst -> Shader Read Only
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    for (auto& barrier : barriers)
+    {
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    }
 
     vkCmdPipelineBarrier(
         frame_data_.cmd_buffer[0],
         VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        0, 0, nullptr, 0, nullptr, 1, &barrier
+        0, 0, nullptr, 0, nullptr, barriers.size(), barriers.data()
     );
 
     vkEndCommandBuffer(frame_data_.cmd_buffer[0]);
@@ -417,25 +471,28 @@ void Renderer::LoadTextures()
     vkQueueSubmit(context_.graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
     vkQueueWaitIdle(context_.graphics_queue);
 
-    // -----------------------------------------------------------------
-    // 4. Create Image View
-    // -----------------------------------------------------------------
-    VkImageViewCreateInfo view_info = {};
-    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image = scene_.texture_image;
-    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
-    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    view_info.subresourceRange.baseMipLevel = 0;
-    view_info.subresourceRange.levelCount = 1;
-    view_info.subresourceRange.baseArrayLayer = 0;
-    view_info.subresourceRange.layerCount = 1;
+    for (size_t i = 0; i < texture_count; i++)
+    {
+        VkImageViewCreateInfo view_info = {};
+        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view_info.image = scene_.texture_images[i];
+        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+        view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view_info.subresourceRange.baseMipLevel = 0;
+        view_info.subresourceRange.levelCount = 1;
+        view_info.subresourceRange.baseArrayLayer = 0;
+        view_info.subresourceRange.layerCount = 1;
 
-    vkCreateImageView(context_.device, &view_info, nullptr, &scene_.texture_image_view);
+        vkCreateImageView(context_.device, &view_info, nullptr, &scene_.texture_image_views[i]);
+    }
 
-    // -----------------------------------------------------------------
-    // 5. Create Sampler
-    // -----------------------------------------------------------------
+    // Quick query for max anisotropy based on your device features
+    VkPhysicalDeviceProperties properties{};
+    vkGetPhysicalDeviceProperties(context_.phys_device, &properties);
+
+    // Create sampler
+    // @todo: should normal, ambient occlusion, and other use the same sampler?
     VkSamplerCreateInfo sampler_info = {};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_info.magFilter = VK_FILTER_LINEAR;
@@ -443,11 +500,6 @@ void Renderer::LoadTextures()
     sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-
-    // Quick query for max anisotropy based on your device features
-    VkPhysicalDeviceProperties properties{};
-    vkGetPhysicalDeviceProperties(context_.phys_device, &properties);
-
     sampler_info.anisotropyEnable = VK_TRUE;
     sampler_info.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
@@ -458,29 +510,30 @@ void Renderer::LoadTextures()
 
     vkCreateSampler(context_.device, &sampler_info, nullptr, &scene_.texture_sampler);
 
-    // -----------------------------------------------------------------
-    // 6. Bindless Descriptor Update
-    // -----------------------------------------------------------------
-    uint32_t texture_index = 0; // In a real system, track this dynamically
-
-    VkDescriptorImageInfo desc_image_info = {};
-    desc_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    desc_image_info.imageView = scene_.texture_image_view;
-    desc_image_info.sampler = scene_.texture_sampler;
-
-    // Loop through your FIF frames to ensure all descriptor sets have the bindless pointer
+    // @todo: textures are not modified by the CPU across frames. Therefore, frame in flight is not necessary here.
+    std::array<VkWriteDescriptorSet, texture_count> write_desc_sets = {};
     for (auto& descriptor_set : frame_data_.descriptor_sets)
     {
-        VkWriteDescriptorSet write_desc = {};
-        write_desc.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write_desc.dstSet = descriptor_set;
-        write_desc.dstBinding = 2; // Assuming bindless array is at binding = 2
-        write_desc.dstArrayElement = texture_index;
-        write_desc.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write_desc.descriptorCount = 1;
-        write_desc.pImageInfo = &desc_image_info;
+        for (size_t i = 0; i < texture_count; i++)
+        {
+            uint32_t texture_index = i;
 
-        vkUpdateDescriptorSets(context_.device, 1, &write_desc, 0, nullptr);
+            VkDescriptorImageInfo desc_image_info = {};
+            desc_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            desc_image_info.imageView = scene_.texture_image_views[i];
+            desc_image_info.sampler = scene_.texture_sampler;
+
+            VkWriteDescriptorSet& write_desc = write_desc_sets[i];
+            write_desc.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write_desc.dstSet = descriptor_set;
+            write_desc.dstBinding = 2; // Assuming bindless array is at binding = 2
+            write_desc.dstArrayElement = texture_index;
+            write_desc.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write_desc.descriptorCount = 1;
+            write_desc.pImageInfo = &desc_image_info;
+        }
+
+        vkUpdateDescriptorSets(context_.device, write_desc_sets.size(), write_desc_sets.data(), 0, nullptr);
     }
 }
 
