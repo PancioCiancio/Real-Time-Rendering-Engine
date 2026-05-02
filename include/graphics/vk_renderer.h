@@ -13,6 +13,8 @@
 #include <SDL2/SDL.h>
 #include <glm/glm.hpp>
 
+#include "vk_mem_freelist.h"
+
 class Math
 {
 public:
@@ -175,7 +177,6 @@ private:
         VkDeviceMemory index_mem            = {};
 
         VkBuffer indirect_draw_buffer       = {};
-        VkDeviceMemory indirect_draw_mem    = {};
 
         std::vector<VkImage> texture_images               = {};
         std::vector<VkImageView> texture_image_views      = {};
@@ -184,6 +185,11 @@ private:
 
         VkBuffer stage_buffer               = {};
         VkDeviceMemory stage_mem            = {};
+
+
+        gpu::MemoryBlock indirect_draw_mem_block = {};
+        VkDeviceMemory host_visible_coherent_mem = {};
+        gpu::FreeList host_visible_coherent_mem_pool = gpu::FreeList(1024 * 1024 + 512);
     } scene_;
 
     struct

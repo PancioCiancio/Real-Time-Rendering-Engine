@@ -249,7 +249,7 @@ void Renderer::Unload()
 
     vkFreeMemory(context_.device, scene_.vertex_mem, nullptr);
     vkFreeMemory(context_.device, scene_.index_mem, nullptr);
-    vkFreeMemory(context_.device, scene_.indirect_draw_mem, nullptr);
+    vkFreeMemory(context_.device, scene_.host_visible_coherent_mem, nullptr);
     vkFreeMemory(context_.device, scene_.stage_mem, nullptr);
 
     vkDestroyBuffer(context_.device, scene_.vertex_buffer, nullptr);
@@ -1590,28 +1590,43 @@ void Renderer::CreateBatch()
 
     VkMemoryRequirements indirect_draw_mem_requirements = {};
     vkGetBufferMemoryRequirements(context_.device, scene_.indirect_draw_buffer, &indirect_draw_mem_requirements);
-    const uint32_t indirect_draw_mem_type = ChooseHeapFromFlags(indirect_draw_mem_requirements, indirect_draw_mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-    VkMemoryAllocateInfo indirect_draw_mem_alloc_info = {};
-    indirect_draw_mem_alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    indirect_draw_mem_alloc_info.pNext = nullptr;
-    indirect_draw_mem_alloc_info.allocationSize = indirect_draw_mem_requirements.size;
-    indirect_draw_mem_alloc_info.memoryTypeIndex = indirect_draw_mem_type;
+    // Temp
+    scene_.host_visible_coherent_mem_pool.Init();
 
-    vkAllocateMemory(context_.device, &indirect_draw_mem_alloc_info, nullptr, &scene_.indirect_draw_mem);
-    vkBindBufferMemory(context_.device, scene_.indirect_draw_buffer, scene_.indirect_draw_mem, 0);
+    VkBufferCreateInfo dummy_buffer_create_info = {};
+    dummy_buffer_create_info.sType        = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    dummy_buffer_create_info.flags        = 0;
+    dummy_buffer_create_info.size         = 1;
+    dummy_buffer_create_info.usage        = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+
+    VkBuffer dummy_buffer = {};
+    vkCreateBuffer(context_.device, &dummy_buffer_create_info, nullptr, &dummy_buffer);
+
+    VkMemoryRequirements dummy_mem_requirements = {};
+    vkGetBufferMemoryRequirements(context_.device, dummy_buffer, &dummy_mem_requirements);
+
+    VkMemoryAllocateInfo host_visible_coherent_alloc_info   = {};
+    host_visible_coherent_alloc_info.sType                  = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    host_visible_coherent_alloc_info.allocationSize         = 1024 * 1024 + 512;
+    host_visible_coherent_alloc_info.memoryTypeIndex        = ChooseHeapFromFlags(dummy_mem_requirements, dummy_mem_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    vkAllocateMemory(context_.device, &host_visible_coherent_alloc_info, nullptr, &scene_.host_visible_coherent_mem);
+    vkDestroyBuffer(context_.device, dummy_buffer, nullptr);
+
+    scene_.indirect_draw_mem_block = scene_.host_visible_coherent_mem_pool.Allocate(indirect_draw_mem_requirements.size, indirect_draw_mem_requirements.alignment);
+    vkBindBufferMemory(context_.device, scene_.indirect_draw_buffer, scene_.host_visible_coherent_mem, scene_.indirect_draw_mem_block.offset);
 
     VkDrawIndexedIndirectCommand indirect_draw_cmd = {};
     indirect_draw_cmd.indexCount = batch_data.indices.size();
-    indirect_draw_cmd.instanceCount = 1;
+    indirect_draw_cmd.instanceCount = 2;
     indirect_draw_cmd.firstIndex = 0;
     indirect_draw_cmd.vertexOffset = 0;
     indirect_draw_cmd.firstInstance = 0;
 
     void* indirect_draw_mapped_data = {};
-    vkMapMemory(context_.device, scene_.indirect_draw_mem, 0, sizeof(VkDrawIndexedIndirectCommand), 0, &indirect_draw_mapped_data);
+    vkMapMemory(context_.device, scene_.host_visible_coherent_mem, scene_.indirect_draw_mem_block.offset, sizeof(VkDrawIndexedIndirectCommand), 0, &indirect_draw_mapped_data);
     std::memcpy(indirect_draw_mapped_data, &indirect_draw_cmd, sizeof(VkDrawIndexedIndirectCommand));
-    vkUnmapMemory(context_.device, scene_.indirect_draw_mem);
+    vkUnmapMemory(context_.device, scene_.host_visible_coherent_mem);
 
     // Copy into the stage buffer previously created.
     void* vertex_stage_mapped_data = {};
