@@ -8,7 +8,7 @@
 #ifndef ADROENGINE_MEMORT_H
 #define ADROENGINE_MEMORT_H
 
-#include <cstddef>
+#include <stdio.h>
 
 namespace Memory
 {

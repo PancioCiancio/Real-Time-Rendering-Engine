@@ -2,8 +2,7 @@ find_package(Vulkan REQUIRED)
 
 add_library(graphics STATIC
         "MeshLoader.cpp"
-        vk_renderer.cpp
-        vk_mem_freelist.cpp)
+        vk_renderer.cpp)
 
 target_include_directories(graphics
         PUBLIC
