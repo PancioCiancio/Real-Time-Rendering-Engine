@@ -511,17 +511,18 @@ void Renderer::LoadTextures()
     vkCreateSampler(context_.device, &sampler_info, nullptr, &scene_.texture_sampler);
 
     // @todo: textures are not modified by the CPU across frames. Therefore, frame in flight is not necessary here.
-    std::array<VkWriteDescriptorSet, texture_count> write_desc_sets = {};
+    std::array<VkWriteDescriptorSet, texture_count> write_desc_sets     = {};
+    std::array<VkDescriptorImageInfo, texture_count> desc_image_infos   = {};
     for (auto& descriptor_set : frame_data_.descriptor_sets)
     {
         for (size_t i = 0; i < texture_count; i++)
         {
-            uint32_t texture_index = i;
-
-            VkDescriptorImageInfo desc_image_info = {};
+            VkDescriptorImageInfo& desc_image_info = desc_image_infos[i];
             desc_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             desc_image_info.imageView = scene_.texture_image_views[i];
             desc_image_info.sampler = scene_.texture_sampler;
+
+            uint32_t texture_index = i;
 
             VkWriteDescriptorSet& write_desc = write_desc_sets[i];
             write_desc.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
