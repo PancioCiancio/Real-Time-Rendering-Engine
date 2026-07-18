@@ -1,8 +1,9 @@
 #include "graphics.h"
 
-#include <SDL2/SDL_vulkan.h>
+#define VK_USE_PLATFORM_WIN32_KHR
 #include <volk/volk.h>
 #include <vma/vk_mem_alloc.h>
+#include <SDL2/SDL_vulkan.h>
 #include <glm/glm.hpp>
 
 #include <print>
@@ -128,7 +129,7 @@ namespace Graphics
     } Loop;
 
     void CreateInstance();
-    void CreateSurface();
+    void CreateSurface(SDL_Window* Window);
     void CreateDevice();
 
     void Initialize(SDL_Window* Window)
@@ -145,7 +146,11 @@ namespace Graphics
 
     void Shutdown()
     {
-
+        vmaDestroyAllocator(Context.Allocator);
+        vkDeviceWaitIdle(Context.Device);
+        vkDestroyDevice(Context.Device, nullptr);
+        vkDestroySurfaceKHR(Context.Instance, Context.Surface, nullptr);
+        vkDestroyInstance(Context.Instance, nullptr);
     }
 
     void CreateInstance()
@@ -155,14 +160,15 @@ namespace Graphics
 
         // Layres requested by the application
         const char* layers[] = {
-            "VK_LAYERS_KHRONOS_validation"
+            "VK_LAYER_KHRONOS_validation"
         };
 
         // Extensions requested by the application
         const char* extensions[] = {
             VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
             VK_KHR_SURFACE_EXTENSION_NAME,
-            VK_KHR_WIN32_SURFACE_EXTENSION_NAME
+            VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+            "VK_KHR_get_physical_device_properties2"
         };
 
         VkApplicationInfo appInfo = {};
@@ -186,7 +192,8 @@ namespace Graphics
         instanceCreateInfo.enabledExtensionCount = VK_ARR_SIZE(extensions);
         instanceCreateInfo.ppEnabledExtensionNames = &extensions[0];
 
-        vkCreateInstance(&instanceCreateInfo, nullptr, &Context.Instance);
+        VkResult result = vkCreateInstance(&instanceCreateInfo, nullptr, &Context.Instance);
+        assert(result == VK_SUCCESS);
 
         volkLoadInstance(Context.Instance);
     }
@@ -207,7 +214,9 @@ namespace Graphics
         requiredFeatures.samplerAnisotropy     = VK_TRUE;
 
         const char* extensions[] = {
-            VK_KHR_SWAPCHAIN_EXTENSION_NAME
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            "VK_KHR_get_memory_requirements2",
+            "VK_KHR_bind_memory2"
         };
 
         uint32_t physDeviceCount = 0;
@@ -216,15 +225,15 @@ namespace Graphics
         VkPhysicalDevice physDevices[4] = {};  // We can list up to four physical devices.
         vkEnumeratePhysicalDevices(Context.Instance, &physDeviceCount, &physDevices[0]);
 
-        for (auto& physDevice : physDevices)
+        for (uint32_t i = 0; i < physDeviceCount; i++)
         {
             VkPhysicalDeviceProperties physDeviceProp = {};
-            vkGetPhysicalDeviceProperties(physDevice, &physDeviceProp);
+            vkGetPhysicalDeviceProperties(physDevices[i], &physDeviceProp);
 
             // Select the device based only on the device type
             if (physDeviceProp.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
             {
-                Context.PhysDevice = physDevice;
+                Context.PhysDevice = physDevices[i];
                 std::println("Vk: {}", physDeviceProp.deviceName);
                 break;
             }
@@ -275,10 +284,46 @@ namespace Graphics
         deviceCreateInfo.queueCreateInfoCount = 1;
         deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
         deviceCreateInfo.enabledExtensionCount = VK_ARR_SIZE(extensions);
-        deviceCreateInfo.ppEnabledExtensionNames = extensions;
+        deviceCreateInfo.ppEnabledExtensionNames = &extensions[0];
         deviceCreateInfo.pEnabledFeatures = &requiredFeatures;
 
         vkCreateDevice(Context.PhysDevice, &deviceCreateInfo, nullptr, &Context.Device);
         volkLoadDevice(Context.Device);
+
+        VmaVulkanFunctions vmaFuncs = {};
+        vmaFuncs.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+        vmaFuncs.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+        vmaFuncs.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
+        vmaFuncs.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+        vmaFuncs.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2KHR;
+        vmaFuncs.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
+        vmaFuncs.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
+        vmaFuncs.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
+        vmaFuncs.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
+        vmaFuncs.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
+        vmaFuncs.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
+        vmaFuncs.vkBindBufferMemory = vkBindBufferMemory;
+        vmaFuncs.vkBindImageMemory = vkBindImageMemory;
+        vmaFuncs.vkBindImageMemory2KHR = vkBindImageMemory2KHR;
+        vmaFuncs.vkBindBufferMemory2KHR = vkBindBufferMemory2KHR;
+        vmaFuncs.vkAllocateMemory = vkAllocateMemory;
+        vmaFuncs.vkFreeMemory = vkFreeMemory;
+        vmaFuncs.vkMapMemory = vkMapMemory;
+        vmaFuncs.vkUnmapMemory = vkUnmapMemory;
+        vmaFuncs.vkCreateBuffer = vkCreateBuffer;
+        vmaFuncs.vkDestroyBuffer = vkDestroyBuffer;
+        vmaFuncs.vkCreateImage = vkCreateImage;
+        vmaFuncs.vkDestroyImage = vkDestroyImage;
+        vmaFuncs.vkCmdCopyBuffer = vkCmdCopyBuffer;
+
+        VmaAllocatorCreateInfo  vmaAllocCreateInfo = {};
+        vmaAllocCreateInfo.flags = VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+        vmaAllocCreateInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+        vmaAllocCreateInfo.physicalDevice = Context.PhysDevice;
+        vmaAllocCreateInfo.device = Context.Device;
+        vmaAllocCreateInfo.instance = Context.Instance;
+        vmaAllocCreateInfo.pVulkanFunctions = &vmaFuncs;
+
+        vmaCreateAllocator(&vmaAllocCreateInfo, &Context.Allocator);
     }
 }

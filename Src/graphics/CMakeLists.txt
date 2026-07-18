@@ -1,9 +1,9 @@
 find_package(Vulkan REQUIRED)
 
 add_library(graphics STATIC
-        "MeshLoader.cpp"
-        vk_renderer.cpp
-        graphics.cpp)
+        graphics.cpp
+        vma_impl.cpp
+        volk_impl.cpp)
 
 target_include_directories(graphics
         PUBLIC
@@ -17,16 +17,7 @@ target_link_libraries(graphics
         stdc++exp)
 
 
-if (WIN32)
-    set(VK_USE_PLATFORM "VK_USE_PLATFORM_WIN32_KHR")    # Must be defined before including vulkan.h
-endif ()
-# TODO: cover all other platforms.
-
-set_source_files_properties(vk_renderer.cpp PROPERTIES
-        COMPILE_DEFINITIONS VOLK_IMPLEMENTATION)
-
 target_compile_definitions(graphics PRIVATE
-        VK_NO_PROTOTYPES
         ${VK_USE_PLATFORM})
 
 # @todo:    sdl2.dll and assimp.dll must be located in Binary/Src/ directory.

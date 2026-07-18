@@ -1,24 +1,14 @@
-// Orda - Proprietary
-//
-// Copyright (c) 2026 apant. All rights reserved.
-//
-// This file is part of Orda. Unauthorized copying. distribution,
-// or modification of this file, via any medium, is strictly prohibited.
-
 #include <SDL2/SDL.h>
-
-#include "vk_renderer.h"
+#include "graphics.h"
 
 int main()
 {
 	// Init window
-	// Vulkan rendering support and resizeable
 	SDL_Init(SDL_INIT_VIDEO);
 	SDL_Window* window = SDL_CreateWindow("Orda", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 
-	// Create the vulkan renderer.
-	Renderer renderer = {};
-	renderer.Load(window);
+	// Init graphics
+	Graphics::Initialize(window);
 
 	Uint64 now = SDL_GetPerformanceCounter();
 	Uint64 last = 0;
@@ -44,7 +34,7 @@ int main()
 			}
 		}
 
-		renderer.Update(delta_time);
+		Graphics::Update(delta_time);
 
 		// Slow down the process if running faster than the target frame.
 		if (delta_time < kTargetFrameTime)
@@ -53,7 +43,7 @@ int main()
 		}
 	}
 
-	renderer.Unload();
+	Graphics::Shutdown();
 
 	return 0;
 }
