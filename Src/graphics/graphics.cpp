@@ -38,24 +38,32 @@ namespace Graphics
         VmaAllocator Allocator                      = {};
     } Context;
 
+    /// @brief Max images count for the swapchain
+    /// Assume we never exced this number (usually 2 to 4 images are used).
+    constexpr size_t MAX_SWAPCHAIN_IMAGES = 4;
+
     struct
     {
-        VkSwapchainKHR Swapchain                = {};
-        VkExtent2D Extent                       = {};
-        VkSurfaceFormatKHR SurfaceFormat        = {};
-        VkImage* Images                         = {};
-        VkImageView* ImageViews                 = {};
-        VkSemaphore* RenderFinishedSemaphores   = {};
+        /// @brief The actual swapchain images count used (retrieved at swapchain creation time).
+        /// No heap allocation involved, the code remain simple for this project.
+        uint32_t ImagesKhrCount = {};
 
-        VkImage MsaaColorImage                  = {};
-        VkImageView MsaaColorImageView          = {};
-        VmaAllocation MsaaColorMem              = {};
+        VkSwapchainKHR Swapchain                                    = {};
+        VkExtent2D Extent                                           = {};
+        VkSurfaceFormatKHR SurfaceFormat                            = {};
+        VkImage Images[MAX_SWAPCHAIN_IMAGES]                        = {};
+        VkImageView ImageViews[MAX_SWAPCHAIN_IMAGES]                = {};
+        VkFramebuffer Framebuffers[MAX_SWAPCHAIN_IMAGES]            = {};
+        VkSemaphore RenderFinishedSemaphores[MAX_SWAPCHAIN_IMAGES]  = {};
 
-        VkImage DepthStencilImage               = {};
-        VkImageView DepthStencilImageView       = {};
-        VmaAllocation DepthStencilMem           = {};
+        VkImage MsaaColorImage          = {};
+        VkImageView MsaaColorImageView  = {};
+        VmaAllocation MsaaColorMem      = {};
 
-        VkFramebuffer Framebuffers              = {};
+        VkImage DepthStencilImage           = {};
+        VkImageView DepthStencilImageView   = {};
+        VmaAllocation DepthStencilMem       = {};
+
     } Swapchain;
 
     
@@ -369,33 +377,33 @@ namespace Graphics
         Swapchain.SurfaceFormat = selectedSurfaceFormat;
         Swapchain.Extent = caps.currentExtent;
 
-        VkSwapchainCreateInfoKHR createInfo = {};
-        createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-        createInfo.surface          = Context.Surface;
-        createInfo.minImageCount    = caps.minImageCount + 1;
-        createInfo.imageFormat      = Swapchain.SurfaceFormat.format;
-        createInfo.imageColorSpace  = Swapchain.SurfaceFormat.colorSpace;
-        createInfo.imageExtent      = Swapchain.Extent;
-        createInfo.imageArrayLayers = 1;
-        createInfo.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        createInfo.preTransform     = caps.currentTransform;
-        createInfo.compositeAlpha   = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        createInfo.presentMode      = presentMode;
-        createInfo.clipped          = VK_TRUE;
-        createInfo.oldSwapchain     = PrevSwapchain;
+        VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
+        swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        swapchainCreateInfo.surface             = Context.Surface;
+        swapchainCreateInfo.minImageCount       = caps.minImageCount + 1;
+        swapchainCreateInfo.imageFormat         = Swapchain.SurfaceFormat.format;
+        swapchainCreateInfo.imageColorSpace     = Swapchain.SurfaceFormat.colorSpace;
+        swapchainCreateInfo.imageExtent         = Swapchain.Extent;
+        swapchainCreateInfo.imageArrayLayers    = 1;
+        swapchainCreateInfo.imageUsage          = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        swapchainCreateInfo.imageSharingMode    = VK_SHARING_MODE_EXCLUSIVE;
+        swapchainCreateInfo.preTransform        = caps.currentTransform;
+        swapchainCreateInfo.compositeAlpha      = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        swapchainCreateInfo.presentMode         = presentMode;
+        swapchainCreateInfo.clipped             = VK_TRUE;
+        swapchainCreateInfo.oldSwapchain        = PrevSwapchain;
 
-        vkCreateSwapchainKHR(Context.Device, &createInfo, nullptr, &Swapchain.Swapchain);
+        vkCreateSwapchainKHR(Context.Device, &swapchainCreateInfo, nullptr, &Swapchain.Swapchain);
 
-        uint32_t swapchainImageCount = {};
-        vkGetSwapchainImagesKHR(Context.Device, Swapchain.Swapchain, &swapchainImageCount, nullptr);
-        // @todo make a double buffer to recycle memory allocations
-        Swapchain.Images = static_cast<VkImage*>(_aligned_malloc(sizeof(VkImage) * swapchainImageCount, alignof(VkImage)));
-        Swapchain.ImageViews = static_cast<VkImageView*>(_aligned_malloc(sizeof(VkImageView) * swapchainImageCount, alignof(VkImageView)));
-        Swapchain.RenderFinishedSemaphores = static_cast<VkSemaphore*>(_aligned_malloc(sizeof(VkSemaphore) * swapchainImageCount, alignof(VkSemaphore)));
-        vkGetSwapchainImagesKHR(Context.Device, Swapchain.Swapchain, &swapchainImageCount, &Swapchain.Images[0]);
+        // Swapchain uses a fixed size array. The code below might fail in case
+        // the swapchain needs more images than 4.
+        // We uses fixed size array to keep the code simple and low level.
+        vkGetSwapchainImagesKHR(Context.Device, Swapchain.Swapchain, &Swapchain.ImagesKhrCount, nullptr);
+        assert(&Swapchain.ImagesKhrCount <= MAX_SWAPCHAIN_IMAGES);
+        vkGetSwapchainImagesKHR(Context.Device, Swapchain.Swapchain, &Swapchain.ImagesKhrCount, &Swapchain.Images[0]);
 
-        for (uint32_t i = 0; i < swapchainImageCount; i++)
+        // Create image views
+        for (uint32_t i = 0; i < Swapchain.ImagesKhrCount; i++)
         {
             VkImageSubresourceRange subresourceRange = {};
             subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -406,15 +414,141 @@ namespace Graphics
 
             VkImageViewCreateInfo imageViewCreateInfo = {};
             imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            imageViewCreateInfo.pNext       = nullptr;
-            imageViewCreateInfo.flags       = 0;
-            imageViewCreateInfo.image       = Swapchain.Images[i];
-            imageViewCreateInfo.viewType    = VK_IMAGE_VIEW_TYPE_2D;
-            imageViewCreateInfo.format      = Swapchain.SurfaceFormat.format;
-            imageViewCreateInfo.components  = { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
-            imageViewCreateInfo.subresourceRange = subresourceRange;
+            imageViewCreateInfo.pNext               = nullptr;
+            imageViewCreateInfo.flags               = 0;
+            imageViewCreateInfo.image               = Swapchain.Images[i];
+            imageViewCreateInfo.viewType            = VK_IMAGE_VIEW_TYPE_2D;
+            imageViewCreateInfo.format              = Swapchain.SurfaceFormat.format;
+            imageViewCreateInfo.components          = { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
+            imageViewCreateInfo.subresourceRange    = subresourceRange;
 
             vkCreateImageView(Context.Device, &imageViewCreateInfo, nullptr, &Swapchain.ImageViews[i]);
         }
+
+        // Create msaa and depth-stencil
+        constexpr VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_4_BIT;
+        constexpr VkComponentMapping compSwizzle = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
+
+        VkImageCreateInfo imageCreateInfos[2] = {};
+        // Sample color
+        imageCreateInfos[0].sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCreateInfos[0].flags           = 0;
+        imageCreateInfos[0].imageType       = VK_IMAGE_TYPE_2D;
+        imageCreateInfos[0].format          = Swapchain.SurfaceFormat.format;
+        imageCreateInfos[0].extent          = { Swapchain.Extent.width, Swapchain.Extent.height, 1 };
+        imageCreateInfos[0].mipLevels       = 1;
+        imageCreateInfos[0].arrayLayers     = 1;
+        imageCreateInfos[0].samples         = sampleCount;
+        imageCreateInfos[0].tiling          = VK_IMAGE_TILING_OPTIMAL;
+        imageCreateInfos[0].usage           = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        imageCreateInfos[0].sharingMode     = VK_SHARING_MODE_EXCLUSIVE;
+        imageCreateInfos[0].initialLayout   = VK_IMAGE_LAYOUT_UNDEFINED;
+        // Depth + Stencil
+        imageCreateInfos[1].sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCreateInfos[1].flags           = 0;
+        imageCreateInfos[1].imageType       = VK_IMAGE_TYPE_2D;
+        imageCreateInfos[1].format          = VK_FORMAT_D32_SFLOAT_S8_UINT;
+        imageCreateInfos[1].extent          = { Swapchain.Extent.width, Swapchain.Extent.height, 1 };
+        imageCreateInfos[1].mipLevels       = 1;
+        imageCreateInfos[1].arrayLayers     = 1;
+        imageCreateInfos[1].samples         = sampleCount;
+        imageCreateInfos[1].tiling          = VK_IMAGE_TILING_OPTIMAL;
+        imageCreateInfos[1].usage           = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        imageCreateInfos[1].sharingMode     = VK_SHARING_MODE_EXCLUSIVE;
+        imageCreateInfos[1].initialLayout   = VK_IMAGE_LAYOUT_UNDEFINED;
+
+
+        VkImageSubresourceRange subresourceRanges[2] = {};
+        // Sample Color
+        subresourceRanges[0].aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        subresourceRanges[0].baseMipLevel   = 0;
+        subresourceRanges[0].levelCount     = 1;
+        subresourceRanges[0].baseArrayLayer = 0;
+        subresourceRanges[0].layerCount     = 1;
+        // Depth + Stencil
+        subresourceRanges[1].aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        subresourceRanges[1].baseMipLevel   = 0;
+        subresourceRanges[1].levelCount     = 1;
+        subresourceRanges[1].baseArrayLayer = 0;
+        subresourceRanges[1].layerCount     = 1;
+
+        VkImageViewCreateInfo imageViewCreateInfos[2] = {};
+        // Sample Color
+        imageViewCreateInfos[0].sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCreateInfos[0].pNext               = nullptr;
+        imageViewCreateInfos[0].flags               = 0;
+        imageViewCreateInfos[0].image               = Swapchain.MsaaColorImage;
+        imageViewCreateInfos[0].viewType            = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCreateInfos[0].format              = Swapchain.SurfaceFormat.format;
+        imageViewCreateInfos[0].components          = compSwizzle;
+        imageViewCreateInfos[0].subresourceRange    = subresourceRanges[0];
+        // Depth + Stencil
+        imageViewCreateInfos[1].sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        imageViewCreateInfos[1].pNext               = nullptr;
+        imageViewCreateInfos[1].flags               = 0;
+        imageViewCreateInfos[1].image               = Swapchain.DepthStencilImage;
+        imageViewCreateInfos[1].viewType            = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCreateInfos[1].format              = VK_FORMAT_D32_SFLOAT_S8_UINT;
+        imageViewCreateInfos[1].components          = compSwizzle;
+        imageViewCreateInfos[1].subresourceRange    = subresourceRanges[1];
+
+        VkImage* images[]           = {&Swapchain.MsaaColorImage, &Swapchain.DepthStencilImage};
+        VkImageView* imageViews[]   = {&Swapchain.MsaaColorImageView, &Swapchain.DepthStencilImageView};
+        VmaAllocation* allocs[]     = {&Swapchain.MsaaColorMem, &Swapchain.DepthStencilMem};
+
+        for (uint32_t i = 0; i < Swapchain.ImagesKhrCount; i++)
+        {
+            vkCreateImage(Context.Device, &imageCreateInfos[i], nullptr, images[i]);
+
+            VkMemoryRequirements memRequirements = {};
+            vkGetImageMemoryRequirements(Context.Device, *images[i], &memRequirements);
+
+            // @todo how do we allocate memory with vma????
+            VmaAllocationCreateInfo allocInfo = {};
+
+            vmaAllocateMemory(Context.Allocator, &memRequirements, )
+        }
+
+
+        // Create synchronization objects
+        for (uint32_t i = 0; i < Swapchain.ImagesKhrCount; i++)
+        {
+            VkSemaphoreCreateInfo semCreateInfo = {};
+            semCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            semCreateInfo.flags = 0;
+
+            vkCreateSemaphore(Context.Device, &semCreateInfo, nullptr, &Swapchain.RenderFinishedSemaphores[i]);
+        }
+    }
+
+    void RecreateSwapchain()
+    {
+        // You are trying to recreate the swapchain when none exist yet.
+        assert(Context.Device == VK_NULL_HANDLE);
+        assert(Swapchain.Swapchain == VK_NULL_HANDLE);
+
+        vkDeviceWaitIdle(Context.Device);
+
+        for (uint32_t i = 0; i < Swapchain.ImagesKhrCount; i++)
+        {
+            vkDestroyFramebuffer(Context.Device, Swapchain.Framebuffers[i], nullptr);
+            vkDestroyImageView(Context.Device, Swapchain.ImageViews[i], nullptr);
+            vkDestroySemaphore(Context.Device, Swapchain.RenderFinishedSemaphores[i], nullptr);
+        }
+
+        // Destroy msaa resources
+        vkDestroyImageView(Context.Device, Swapchain.MsaaColorImageView, nullptr);
+        vkDestroyImage(Context.Device, Swapchain.MsaaColorImage, nullptr);
+        vmaFreeMemory(Context.Allocator, Swapchain.MsaaColorMem);
+
+        // Destroy depth-stencil resources
+        vkDestroyImageView(Context.Device, Swapchain.DepthStencilImageView, nullptr);
+        vkDestroyImage(Context.Device, Swapchain.DepthStencilImage, nullptr);
+        vmaFreeMemory(Context.Allocator, Swapchain.DepthStencilMem);
+
+        VkSwapchainKHR oldSwapchain = Swapchain.Swapchain;
+        CreateSwapchain(oldSwapchain);
+        
+        vkDestroySwapchainKHR(Context.Device, oldSwapchain, nullptr);
     }
 }
