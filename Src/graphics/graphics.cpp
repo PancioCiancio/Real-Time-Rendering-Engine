@@ -142,6 +142,18 @@ namespace Graphics
     void CreateSurface(SDL_Window* Window);
     void CreateDevice();
     void CreateSwapchain(VkSwapchainKHR PrevSwapchain);
+    void CreateRendererPass();
+    void CreateFramebuffers();
+    void RecreateSwapchain();
+
+    // @todo
+    // Create frame in flight
+    // Prepare depth stencil
+    // Create stage buffer
+    // Create batch
+    // Create ubo
+    // Create pipeline
+    // Load textures
     #pragma endregion
 
     void Initialize(SDL_Window* Window)
@@ -150,15 +162,69 @@ namespace Graphics
         CreateSurface(Window);
         CreateDevice();
         CreateSwapchain(VK_NULL_HANDLE);
+        CreateRendererPass();
+        CreateFramebuffers();
     }
 
     void Update(double DeltaTime)
     {
+        // if (Loop.ResizeRequested)
+        // {
+        //     RecreateSwapchain();
+        //     Loop.ResizeRequested = false;
+        // }
 
+        // vkWaitForFences(Context.Device, 1, &Frame.SubmitFences[Loop.FrameIndex], VK_TRUE, UINT64_MAX);
+        // uint32_t nextImage = 0;
+        // const VkResult acquireImageResult = vkAcquireNextImageKHR(Context.Device, Swapchain.Swapchain, UINT64_MAX, Frame.AcquiredImageSemaphores[Loop.FrameIndex], VK_NULL_HANDLE, &nextImage);
+
+        // if (acquireImageResult == VK_ERROR_OUT_OF_DATE_KHR)
+        // {
+        //     Loop.ResizeRequested = true;
+        //     return;
+        // }
+
+        // vkResetFences(Context.Device, 1, &Frame.SubmitFences[Loop.FrameIndex]);
+
+        // VkResult presentInfoResult = {};
+        // VkPresentInfoKHR presentInfo = {};
+        // presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        // presentInfo.waitSemaphoreCount = 1;
+        // presentInfo.pWaitSemaphores = &Swapchain.RenderFinishedSemaphores[nextImage];
+        // presentInfo.swapchainCount = 1;
+        // presentInfo.pSwapchains = &Swapchain.Swapchain;
+        // presentInfo.pImageIndices = &nextImage;
+        // presentInfo.pResults = &presentInfoResult;
+        // const VkResult queuePresentResult = vkQueuePresentKHR(Context.GraphicsQueue, &presentInfo);
+
+        // if (queuePresentResult == VK_ERROR_OUT_OF_DATE_KHR)
+        // {
+        //     Loop.ResizeRequested = true;
+        //     return;
+        // }
+
+        Loop.FrameIndex = (Loop.FrameIndex + 1) % MAX_FIF;
     }
 
     void Shutdown()
     {
+        vkDestroyRenderPass(Context.Device, Pipeline.RenderPass, nullptr);
+
+        for (uint32_t i = 0; i < Swapchain.ImagesKhrCount; i++)
+        {
+            vkDestroyFramebuffer(Context.Device, Swapchain.Framebuffers[i], nullptr);
+            vkDestroyImageView(Context.Device, Swapchain.ImageViews[i], nullptr);
+            vkDestroySemaphore(Context.Device, Swapchain.RenderFinishedSemaphores[i], nullptr);
+        }
+
+        // Destroy msaa resources
+        vkDestroyImageView(Context.Device, Swapchain.MsaaColorImageView, nullptr);
+        vmaDestroyImage(Context.Allocator, Swapchain.MsaaColorImage, Swapchain.MsaaColorMem);
+
+        // Destroy depth-stencil resources
+        vkDestroyImageView(Context.Device, Swapchain.DepthStencilImageView, nullptr);
+        vmaDestroyImage(Context.Allocator, Swapchain.DepthStencilImage, Swapchain.DepthStencilMem);
+
         vkDestroySwapchainKHR(Context.Device, Swapchain.Swapchain, nullptr);
         vmaDestroyAllocator(Context.Allocator);
         vkDeviceWaitIdle(Context.Device);
@@ -399,7 +465,7 @@ namespace Graphics
         // the swapchain needs more images than 4.
         // We uses fixed size array to keep the code simple and low level.
         vkGetSwapchainImagesKHR(Context.Device, Swapchain.Swapchain, &Swapchain.ImagesKhrCount, nullptr);
-        assert(&Swapchain.ImagesKhrCount <= MAX_SWAPCHAIN_IMAGES);
+        assert(Swapchain.ImagesKhrCount <= MAX_SWAPCHAIN_IMAGES);
         vkGetSwapchainImagesKHR(Context.Device, Swapchain.Swapchain, &Swapchain.ImagesKhrCount, &Swapchain.Images[0]);
 
         // Create image views
@@ -457,6 +523,16 @@ namespace Graphics
         imageCreateInfos[1].sharingMode     = VK_SHARING_MODE_EXCLUSIVE;
         imageCreateInfos[1].initialLayout   = VK_IMAGE_LAYOUT_UNDEFINED;
 
+        VkImage* images[]           = {&Swapchain.MsaaColorImage, &Swapchain.DepthStencilImage};
+        VmaAllocation* allocs[]     = {&Swapchain.MsaaColorMem, &Swapchain.DepthStencilMem};
+
+        for (uint32_t i = 0; i < Swapchain.ImagesKhrCount; i++)
+        {
+            VmaAllocationCreateInfo allocCreateInfo = {};
+            allocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+            vmaCreateImage(Context.Allocator, &imageCreateInfos[i], &allocCreateInfo, images[i], allocs[i], nullptr);
+        }
 
         VkImageSubresourceRange subresourceRanges[2] = {};
         // Sample Color
@@ -492,23 +568,12 @@ namespace Graphics
         imageViewCreateInfos[1].components          = compSwizzle;
         imageViewCreateInfos[1].subresourceRange    = subresourceRanges[1];
 
-        VkImage* images[]           = {&Swapchain.MsaaColorImage, &Swapchain.DepthStencilImage};
         VkImageView* imageViews[]   = {&Swapchain.MsaaColorImageView, &Swapchain.DepthStencilImageView};
-        VmaAllocation* allocs[]     = {&Swapchain.MsaaColorMem, &Swapchain.DepthStencilMem};
 
-        for (uint32_t i = 0; i < Swapchain.ImagesKhrCount; i++)
+        for (uint32_t i = 0; i < VK_ARR_SIZE(imageViews); i++)
         {
-            vkCreateImage(Context.Device, &imageCreateInfos[i], nullptr, images[i]);
-
-            VkMemoryRequirements memRequirements = {};
-            vkGetImageMemoryRequirements(Context.Device, *images[i], &memRequirements);
-
-            // @todo how do we allocate memory with vma????
-            VmaAllocationCreateInfo allocInfo = {};
-
-            vmaAllocateMemory(Context.Allocator, &memRequirements, )
+            vkCreateImageView(Context.Device, &imageViewCreateInfos[i], nullptr, imageViews[i]);
         }
-
 
         // Create synchronization objects
         for (uint32_t i = 0; i < Swapchain.ImagesKhrCount; i++)
@@ -518,6 +583,122 @@ namespace Graphics
             semCreateInfo.flags = 0;
 
             vkCreateSemaphore(Context.Device, &semCreateInfo, nullptr, &Swapchain.RenderFinishedSemaphores[i]);
+        }
+    }
+
+    void CreateRendererPass()
+    {
+        constexpr VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_4_BIT;
+
+        VkAttachmentDescription colorAttachemnt = {};
+        colorAttachemnt.flags           = 0;
+        colorAttachemnt.format          = Swapchain.SurfaceFormat.format;
+        colorAttachemnt.samples         = sampleCount;
+        colorAttachemnt.loadOp          = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachemnt.storeOp         = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        colorAttachemnt.stencilLoadOp   = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachemnt.stencilStoreOp  = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        colorAttachemnt.initialLayout   = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorAttachemnt.finalLayout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference colorAttachmentRef = {};
+        colorAttachmentRef.attachment   = 0;
+        colorAttachmentRef.layout       = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentDescription colorResolverAttachment = {};
+        colorResolverAttachment.flags           = 0;
+        colorResolverAttachment.format          = Swapchain.SurfaceFormat.format;
+        colorResolverAttachment.samples         = VK_SAMPLE_COUNT_1_BIT;
+        colorResolverAttachment.loadOp          = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorResolverAttachment.storeOp         = VK_ATTACHMENT_STORE_OP_STORE;
+        colorResolverAttachment.stencilLoadOp   = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorResolverAttachment.stencilStoreOp  = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        colorResolverAttachment.initialLayout   = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorResolverAttachment.finalLayout     = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference colorResolverAttachmentRef = {};
+        colorResolverAttachmentRef.attachment   = 2;
+        colorResolverAttachmentRef.layout       = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        // Depth + stencil
+        VkAttachmentDescription depthAttachment = {};
+        depthAttachment.flags           = 0;
+        depthAttachment.format          = VK_FORMAT_D32_SFLOAT_S8_UINT;
+        depthAttachment.samples         = sampleCount;
+        depthAttachment.loadOp          = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp         = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.stencilLoadOp   = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.stencilStoreOp  = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.initialLayout   = VK_IMAGE_LAYOUT_UNDEFINED;
+        depthAttachment.finalLayout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference depthAttachmentRef = {};
+        depthAttachmentRef.attachment   = 1;
+        depthAttachmentRef.layout       = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass = {};
+        subpass.flags                   = 0;
+        subpass.pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.inputAttachmentCount    = 0;
+        subpass.pInputAttachments       = nullptr;
+        subpass.colorAttachmentCount    = 1;
+        subpass.pColorAttachments       = &colorAttachmentRef;
+        subpass.pResolveAttachments     = &colorResolverAttachmentRef;
+        subpass.pDepthStencilAttachment = &depthAttachmentRef;
+        subpass.preserveAttachmentCount = 0;
+        subpass.pPreserveAttachments    = nullptr;
+
+        VkSubpassDependency dependency = {};
+        dependency.srcSubpass       = VK_SUBPASS_EXTERNAL;
+        dependency.dstSubpass       = 0;
+        dependency.srcStageMask     = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        dependency.dstStageMask     = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dependency.srcAccessMask    = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        dependency.dstAccessMask    = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        dependency.dependencyFlags  = 0;
+
+        VkAttachmentDescription attachmentDescs[3] = {
+            colorAttachemnt,
+            depthAttachment,
+            colorResolverAttachment,
+        };
+
+        VkRenderPassCreateInfo renderPassCreateInfo = {};
+        renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderPassCreateInfo.pNext              = nullptr;
+        renderPassCreateInfo.flags              = 0;
+        renderPassCreateInfo.attachmentCount    = VK_ARR_SIZE(attachmentDescs);
+        renderPassCreateInfo.pAttachments       = &attachmentDescs[0];
+        renderPassCreateInfo.subpassCount       = 1;
+        renderPassCreateInfo.pSubpasses         = &subpass;
+        renderPassCreateInfo.dependencyCount    = 1;
+        renderPassCreateInfo.pDependencies      = &dependency;
+
+        vkCreateRenderPass(Context.Device, &renderPassCreateInfo, nullptr, &Pipeline.RenderPass);
+    }
+
+    void CreateFramebuffers()
+    {
+        // Create framebuffers
+        for (uint32_t i = 0; i < Swapchain.ImagesKhrCount; i++)
+        {
+            const VkImageView attachments[3] = {
+                Swapchain.MsaaColorImageView,
+                Swapchain.DepthStencilImageView,
+                Swapchain.ImageViews[i]
+            };
+
+            VkFramebufferCreateInfo framebufferCreateInfo = {};
+            framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferCreateInfo.flags             = 0;
+            framebufferCreateInfo.renderPass        = Pipeline.RenderPass;
+            framebufferCreateInfo.attachmentCount   = VK_ARR_SIZE(attachments);
+            framebufferCreateInfo.pAttachments      = &attachments[0];
+            framebufferCreateInfo.width             = Swapchain.Extent.width;
+            framebufferCreateInfo.height            = Swapchain.Extent.height;
+            framebufferCreateInfo.layers            = 1;
+
+            vkCreateFramebuffer(Context.Device, &framebufferCreateInfo, nullptr, &Swapchain.Framebuffers[i]);
         }
     }
 
@@ -538,16 +719,15 @@ namespace Graphics
 
         // Destroy msaa resources
         vkDestroyImageView(Context.Device, Swapchain.MsaaColorImageView, nullptr);
-        vkDestroyImage(Context.Device, Swapchain.MsaaColorImage, nullptr);
-        vmaFreeMemory(Context.Allocator, Swapchain.MsaaColorMem);
+        vmaDestroyImage(Context.Allocator, Swapchain.MsaaColorImage, Swapchain.MsaaColorMem);
 
         // Destroy depth-stencil resources
         vkDestroyImageView(Context.Device, Swapchain.DepthStencilImageView, nullptr);
-        vkDestroyImage(Context.Device, Swapchain.DepthStencilImage, nullptr);
-        vmaFreeMemory(Context.Allocator, Swapchain.DepthStencilMem);
+        vmaDestroyImage(Context.Allocator, Swapchain.DepthStencilImage, Swapchain.DepthStencilMem);
 
         VkSwapchainKHR oldSwapchain = Swapchain.Swapchain;
         CreateSwapchain(oldSwapchain);
+        CreateFramebuffers();
         
         vkDestroySwapchainKHR(Context.Device, oldSwapchain, nullptr);
     }
